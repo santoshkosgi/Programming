@@ -70,6 +70,9 @@ InputBuffer* get_inputbuffer(){
 }
 
 
+void free_object(void* object){
+	free(object);
+}
 
 void free_buffer(InputBuffer* input_buffer){
 	free(input_buffer->buffer);
@@ -137,14 +140,15 @@ void insert_row_into_table(Row* row, Table* table){
 	uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
 	serialize(row, page + row_number_address);
 	printf("%s:%d\n", "Row inserted", row_number);
+	// Freeing space occupuied by row.
 }
 
 
-void fetch_row_from_table(int id, Table* table){
+void fetch_row_from_table(int id, Row* row, Table* table){
 	/*
 	This function uses the row id to fetch particular row.
 	*/
-	Row* row = get_row();
+	
 	int page_number = id/max_rows_per_page;
 	int row_number_in_page = id%max_rows_per_page;
 	uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
@@ -165,23 +169,28 @@ int process_sql_statements(char* statement, Table* table){
 		}
 		// Insert row into the table.
 		insert_row_into_table(row, table);
+		free_object(row);
 		return EXIT_SUCCESS;
+
 	}
 	else if(strncmp(statement, "select", 6) == 0){
 		printf("Select statement will be processed\n");
+		Row* row = get_row();
 		int id;
 		int args_assigned = sscanf(statement, "select %d", &id);
 		if(args_assigned != 1){
 			printf("More or less number of arguments in the query statement\n");
 			return EXIT_FAILURE;
 		}
-		fetch_row_from_table(id, table);
+		fetch_row_from_table(id, row, table);
+		free_object(row);
 		return EXIT_SUCCESS;
 	}
 	else{
 		return EXIT_FAILURE;
 	}
 }
+
 
 
 
@@ -206,6 +215,7 @@ int main(void)
 		if (input_buffer->buffer[0] ==  '.'){
 			if (process_non_sql_statements(input_buffer->buffer) == EXIT_SUCCESS){
 					free_buffer(input_buffer);
+					free_object(table);
 					exit(EXIT_SUCCESS);
 			}
 			else{
