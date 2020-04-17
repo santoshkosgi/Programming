@@ -148,13 +148,22 @@ void fetch_row_from_table(int id, Row* row, Table* table){
 	/*
 	This function uses the row id to fetch particular row.
 	*/
-	
 	int page_number = id/max_rows_per_page;
 	int row_number_in_page = id%max_rows_per_page;
 	uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
 	desrialise(table->pages[page_number]+row_number_address,row);
 	printf("%s\n", row->email);
+}
 
+void print_all_rows(Row* row, Table* table){
+	int start_row;
+	for(start_row=0; start_row <= table->rows_inserted;start_row++){
+		int page_number = start_row/max_rows_per_page;
+		int row_number_in_page = start_row%max_rows_per_page;
+		uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
+		desrialise(table->pages[page_number]+row_number_address,row);
+		printf("%d,%s,%s\n", row->id, row->name, row->email);
+	}
 }
 
 int process_sql_statements(char* statement, Table* table){
@@ -173,6 +182,14 @@ int process_sql_statements(char* statement, Table* table){
 		return EXIT_SUCCESS;
 
 	}
+	// Adding support to print all the rows
+	else if(strncmp(statement, "select_all", 10) == 0){
+		Row* row = get_row();
+		print_all_rows(row, table);
+		free_object(row);
+		return EXIT_SUCCESS;
+	}
+
 	else if(strncmp(statement, "select", 6) == 0){
 		printf("Select statement will be processed\n");
 		Row* row = get_row();
