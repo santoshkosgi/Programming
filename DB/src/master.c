@@ -7,6 +7,24 @@
 #define COLUMN_EMAIL_SIZE 255
 
 
+// Error codes.
+ enum PrepareResult_t {
+   PREPARE_SUCCESS,
+   PREPARE_NEGATIVE_ID,
+   PREPARE_STRING_TOO_LONG,
+   PREPARE_SYNTAX_ERROR,
+   PREPARE_UNRECOGNIZED_STATEMENT,
+   MAXIMUM_PAGES_REACHED
+  };
+
+
+// This structure defines a datastructure to store the data from file.
+typedef struct
+{
+	uint32_t start_address;
+	int page_number;
+	void* page;
+} Pager;
 
 
 void print_prompt(){
@@ -22,8 +40,9 @@ typedef struct {
 
 typedef struct{
 	uint32_t id;
-	char name[COLUMN_USERNAME_SIZE];
-	char email[COLUMN_EMAIL_SIZE];
+	// Increasing length of name and email by one, so that it can accommodate the end of string charecter.
+	char name[COLUMN_USERNAME_SIZE+1];
+	char email[COLUMN_EMAIL_SIZE+1];
 } Row;
 
 
@@ -121,14 +140,29 @@ void desrialise(void* source, Row* destination){
 
 }
 
-void insert_row_into_table(Row* row, Table* table){
+int insert_row_into_table(Row* row, Table* table){
 	/*
 	This function finds the corresponding page and corresponding memory location in the page to copy the row data, using
 	serialising function. This function also allocates memory to the page.
 	*/
+
+	// Checking for errors.
+	if (strlen(row->name) > COLUMN_USERNAME_SIZE || strlen(row->email) > COLUMN_EMAIL_SIZE){
+		printf("%s\n", "Check the length of fields supplied for Name and Email columns.");
+		return PREPARE_STRING_TOO_LONG;
+	} 
+
+	// if (row->id < 0){
+	// 	printf("%s\n", "ID should be greater than zero.");
+	// 	return PREPARE_NEGATIVE_ID;
+	// }
 	table->rows_inserted += 1;
 	int row_number = table->rows_inserted;
 	int page_number = row_number/max_rows_per_page;
+	if(page_number >= max_pages){
+		printf("%s\n", "Maximum Pages reached");
+		return MAXIMUM_PAGES_REACHED;
+	}
 	// Checking if we need to create a new page.
 	void *page = table->pages[page_number];
 	if (page_number > table->pages_used){
@@ -140,6 +174,7 @@ void insert_row_into_table(Row* row, Table* table){
 	uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
 	serialize(row, page + row_number_address);
 	printf("%s:%d\n", "Row inserted", row_number);
+	return EXIT_SUCCESS;
 	// Freeing space occupuied by row.
 }
 
@@ -170,14 +205,20 @@ int process_sql_statements(char* statement, Table* table){
 	if (strncmp(statement, "insert", 6) == 0){
 		printf("Insert statement will be processed\n");
 		Row* row = get_row();
-
 		int args_assigned = sscanf(statement, "insert %d %s %s", &(row->id), row->name, row->email);
+		if (row->name[1] == '\0'){
+			printf("%s\n", "Yes");
+		}
 		if (args_assigned != 3){
-			printf("More or less number of arguments in the query statement\n");
-			return EXIT_FAILURE;
+			printf("Synatx Error\n");
+			return PREPARE_SYNTAX_ERROR;
 		}
 		// Insert row into the table.
 		insert_row_into_table(row, table);
+		// if(insert_row_into_table(row, table) == EXIT_FAILURE){
+		// 	printf("%s\n", "Maximum pages have been stored.");
+		// 	return EXIT_FAILURE;
+		// }
 		free_object(row);
 		return EXIT_SUCCESS;
 
