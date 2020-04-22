@@ -176,16 +176,21 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     }
     // Checking if we need to create a new page.
     void *page = table->pager->page;
-    page = table->pager->page = malloc(page_size);
+    printf("%d %d\n", page_number, table->pages_used);
+
     if (page_number > table->pages_used){
+        page = table->pager->page = malloc(page_size);
         table->pages_used += 1;
     }
     else{
         // We have to load page from the File.
-        printf("%s\n", "Here");
-        fseek(fptr, page_number*page_size, SEEK_CUR);
-        fread(page, page_size, 1, fptr);
-        set_filepointer_to_start_of_data(table, fptr);
+        if (page_number != table->pager->page_number)
+        {
+            page = table->pager->page = malloc(page_size);
+            fseek(fptr, page_number*page_size, SEEK_CUR);
+            fread(page, page_size, 1, fptr);
+            set_filepointer_to_start_of_data(table, fptr);
+        }
     }
 
     table->pager->page_number = page_number;
@@ -193,6 +198,7 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     // Required number of the row in a page.
     int row_number_in_page = row_number%max_rows_per_page;
     uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
+    printf("%s\n", "Here");
     serialize(row, page + row_number_address);
     printf("%s:%d\n", "Row inserted", row_number);
     return EXIT_SUCCESS;
@@ -277,10 +283,10 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
 int main(void)
 {
     FILE *fptr;
-    fptr = fopen("Database.db", "ab+");
-    if (fptr == NULL){
-        printf("%s\n", "Cannot open database file");
-        return 0;
+    fptr = fopen("Database.db", "r+");
+    if (fptr == NULL)
+    {
+        fptr = fopen("Database.db", "w+");
     }
     int len;
     fseek(fptr, 0, SEEK_END);  
@@ -292,6 +298,7 @@ int main(void)
     // Initialise the table with default parameters.
     // Initialise the pager also.
     Table* table = initialise_tabel();
+    printf("%d\n", len_of_file);
     if (len_of_file != 0){
         // Checking if there is some data data in DB or not.
         // Moving fptr to start of the file.
@@ -301,6 +308,7 @@ int main(void)
         // Moving pointer to start of pages_used.
         fseek(fptr, sizeof(table->rows_inserted), SEEK_SET);
         fread(&table->pages_used, sizeof(table->pages_used), 1, fptr);
+        printf("%d %d\n", table->pages_used, table->rows_inserted);
     }
 
     while(true){
@@ -329,7 +337,10 @@ int main(void)
                     
                     // Copying the Stored Page.
                     set_filepointer_to_start_of_data(table, fptr);
+                    printf("%d\n", table->pager->page_number*page_size);
                     fseek(fptr, table->pager->page_number*page_size, SEEK_CUR);
+                    int len = ftell(fptr);
+                    printf("%d\n", len);
                     fwrite(table->pager->page, page_size, 1, fptr);
 
                     // Writing the page.
