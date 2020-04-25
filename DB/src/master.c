@@ -149,6 +149,15 @@ void desrialise(void* source, Row* destination){
 
 }
 
+void load_page(int page_number, Table* table, FILE* fptr){
+    void *page = table->pager->page;
+    page = table->pager->page = malloc(page_size);
+    fseek(fptr, page_number*page_size, SEEK_CUR);
+    fread(page, page_size, 1, fptr);
+    set_filepointer_to_start_of_data(table, fptr);
+    table->pager->page_number = page_number;
+}
+
 int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     /*
     This function finds the corresponding page and corresponding memory location in the page to copy the row data, using
@@ -186,10 +195,7 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
         // We have to load page from the File.
         if (page_number != table->pager->page_number)
         {
-            page = table->pager->page = malloc(page_size);
-            fseek(fptr, page_number*page_size, SEEK_CUR);
-            fread(page, page_size, 1, fptr);
-            set_filepointer_to_start_of_data(table, fptr);
+            load_page(page_number, table, fptr);
         }
     }
 
@@ -217,10 +223,16 @@ void fetch_row_from_table(int id, Row* row, Table* table){
     printf("%s\n", row->email);
 }
 
-void print_all_rows(Row* row, Table* table){
+void print_all_rows(Row* row, Table* table, FILE* fptr){
     int start_row;
     for(start_row=0; start_row <= table->rows_inserted;start_row++){
         int page_number = start_row/max_rows_per_page;
+        
+        // Loading the page if its not loaded into the table yet.
+        if (page_number != table->pager->page_number){
+            load_page(page_number, table, fptr);    
+        }
+
         int row_number_in_page = start_row%max_rows_per_page;
         uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
         desrialise(table->pager->page+row_number_address,row);
@@ -251,7 +263,7 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
     // Adding support to print all the rows
     else if(strncmp(statement, "select_all", 10) == 0){
         Row* row = get_row();
-        print_all_rows(row, table);
+        print_all_rows(row, table, fptr);
         free_object(row);
         return EXIT_SUCCESS;
     }
@@ -273,7 +285,6 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
         return EXIT_FAILURE;
     }
 }
-
 
 
 
@@ -308,6 +319,10 @@ int main(void)
         // Moving pointer to start of pages_used.
         fseek(fptr, sizeof(table->rows_inserted), SEEK_SET);
         fread(&table->pages_used, sizeof(table->pages_used), 1, fptr);
+        
+        // Loading the Last page which can be directly used for select statements.
+        load_page(table->pages_used, table, fptr);
+
         printf("%d %d\n", table->pages_used, table->rows_inserted);
     }
 
