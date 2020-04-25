@@ -129,7 +129,6 @@ void load_page(int page_number, Table* table, FILE* fptr){
     void *page = table->pager->page;
     page = table->pager->page = malloc(page_size);
     if (page_number > table->pages_used){
-        page = table->pager->page = malloc(page_size);
         table->pages_used += 1;
     }
     else{
@@ -143,7 +142,9 @@ void load_page(int page_number, Table* table, FILE* fptr){
 // Returning the address of the location where cursor is pointing.
 void* cursor_value(Cursor* cursor, FILE* fptr){
     int page_number = cursor->row_number/max_rows_per_page;
-    load_page(page_number, cursor->table, fptr);
+    if(page_number != cursor->table->pager->page_number){
+        load_page(page_number, cursor->table, fptr);
+    }
     int row_number_in_page = cursor->row_number%max_rows_per_page;
     uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
     return cursor->table->pager->page+row_number_address;
@@ -246,7 +247,6 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
 
     Cursor* cursor = table_end(table);
     serialize(row, cursor_value(cursor, fptr));
-    printf("%s\n", row->email);
     printf("%s:%d\n", "Row inserted", row_number);
     free_object(cursor);
     return EXIT_SUCCESS;
@@ -266,13 +266,20 @@ void fetch_row_from_table(int id, Row* row, Table* table){
 
 void print_all_rows(Row* row, Table* table, FILE* fptr){
     int start_row;
-    // Initialising cursor to the start of the table
     Cursor* cursor = table_start(table);
-    while(cursor->row_number <= table->rows_inserted){
+    for(start_row=0; start_row <= table->rows_inserted;start_row++){
+        int page_number = start_row/max_rows_per_page;
+        // Loading the page if its not loaded into the table yet.
+        if (page_number != table->pager->page_number){
+            load_page(page_number, table, fptr);    
+        }
+        int row_number_in_page = start_row%max_rows_per_page;
+        uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
         desrialise(cursor_value(cursor, fptr),row);
-        printf("%d,%s,%s\n", row->id, row->name, row->email);
         advance_cursor(cursor);
+        printf("%d,%s,%s\n", row->id, row->name, row->email);
     }
+    free_object(cursor);
 }
 
 int process_sql_statements(char* statement, Table* table, FILE* fptr){
@@ -344,7 +351,6 @@ int main(void)
     // Initialise the table with default parameters.
     // Initialise the pager also.
     Table* table = initialise_tabel();
-    printf("%d\n", len_of_file);
     if (len_of_file != 0){
         // Checking if there is some data data in DB or not.
         // Moving fptr to start of the file.
@@ -358,7 +364,7 @@ int main(void)
         // Loading the Last page which can be directly used for select statements.
         load_page(table->pages_used, table, fptr);
 
-        printf("%d %d\n", table->pages_used, table->rows_inserted);
+        // printf("%d %d\n", table->pages_used, table->rows_inserted);
     }
 
     while(true){
@@ -387,10 +393,7 @@ int main(void)
                     
                     // Copying the Stored Page.
                     set_filepointer_to_start_of_data(table, fptr);
-                    printf("%d\n", table->pager->page_number*page_size);
                     fseek(fptr, table->pager->page_number*page_size, SEEK_CUR);
-                    int len = ftell(fptr);
-                    printf("%d\n", len);
                     fwrite(table->pager->page, page_size, 1, fptr);
 
                     // Writing the page.
