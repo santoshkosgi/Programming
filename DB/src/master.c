@@ -1,3 +1,16 @@
+/*
+Todo: 25/04/2020
+When ever we are loading a new page and insert operations have been performed on the current page(Global Flag or an attribue 
+in page structure ?) update the contents of the page in the table.
+
+OR..
+
+Keep a flag for each page denoting whether the page changed or not(rows inserted or deleted or modified), update these pages
+during .exit
+
+*/
+
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,8 +60,6 @@ typedef struct{
 } Row;
 
 
-
-
 const int ID_SIZE = sizeof(((Row*)0)->id);
 const int NAME_SIZE = sizeof(((Row*)0)->name);
 const int EMAIL_SIZE = sizeof(((Row*)0)->email);
@@ -82,6 +93,70 @@ Table* initialise_tabel(){
     return table;
 }
 
+typedef struct
+{
+    short row_number;
+    Table* table;
+    bool end_of_table;
+} Cursor;
+
+// Defining a cursor which points to the start of the table.
+Cursor* table_start(Table* table){
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->row_number = 0;
+    cursor->table = table;
+    cursor->end_of_table = (table->rows_inserted == 0);
+    return cursor;
+}
+
+// Defining a Cursor which points to the end of last row+1 address.
+Cursor* table_end(Table* table){
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->row_number = table->rows_inserted;
+    cursor->table = table;
+    cursor->end_of_table = true;
+    return cursor;    
+}
+
+void set_filepointer_to_start_of_data(Table* table, FILE* fptr){
+    fseek(fptr, 0, SEEK_SET);
+    // Moving pointer to start of page data after
+    fseek(fptr, sizeof(table->rows_inserted) * 2, SEEK_SET);
+}
+
+
+void load_page(int page_number, Table* table, FILE* fptr){
+    void *page = table->pager->page;
+    page = table->pager->page = malloc(page_size);
+    if (page_number > table->pages_used){
+        page = table->pager->page = malloc(page_size);
+        table->pages_used += 1;
+    }
+    else{
+        fseek(fptr, page_number*page_size, SEEK_CUR);
+        fread(page, page_size, 1, fptr);
+        set_filepointer_to_start_of_data(table, fptr);
+    }
+    table->pager->page_number = page_number;
+}
+
+// Returning the address of the location where cursor is pointing.
+void* cursor_value(Cursor* cursor, FILE* fptr){
+    int page_number = cursor->row_number/max_rows_per_page;
+    load_page(page_number, cursor->table, fptr);
+    int row_number_in_page = cursor->row_number%max_rows_per_page;
+    uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
+    return cursor->table->pager->page+row_number_address;
+}
+
+// Advancing cursor to the next row.
+void advance_cursor(Cursor* cursor){
+    cursor->row_number += 1;
+    if (cursor->row_number == cursor->table->rows_inserted) {
+        cursor->end_of_table = true;
+    }
+}
+
 InputBuffer* get_inputbuffer(){
     InputBuffer* input_buffer = NULL;
     input_buffer = malloc(sizeof(InputBuffer));
@@ -92,11 +167,6 @@ InputBuffer* get_inputbuffer(){
 }
 
 
-void set_filepointer_to_start_of_data(Table* table, FILE* fptr){
-    fseek(fptr, 0, SEEK_SET);
-    // Moving pointer to start of page data after
-    fseek(fptr, sizeof(table->rows_inserted) * 2, SEEK_SET);
-}
 
 void free_object(void* object){
     free(object);
@@ -149,14 +219,6 @@ void desrialise(void* source, Row* destination){
 
 }
 
-void load_page(int page_number, Table* table, FILE* fptr){
-    void *page = table->pager->page;
-    page = table->pager->page = malloc(page_size);
-    fseek(fptr, page_number*page_size, SEEK_CUR);
-    fread(page, page_size, 1, fptr);
-    set_filepointer_to_start_of_data(table, fptr);
-    table->pager->page_number = page_number;
-}
 
 int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     /*
@@ -171,44 +233,23 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
         return PREPARE_STRING_TOO_LONG;
     } 
 
-    // if (row->id < 0){
-    //  printf("%s\n", "ID should be greater than zero.");
-    //  return PREPARE_NEGATIVE_ID;
-    // }
     table->rows_inserted += 1;
     int row_number = table->rows_inserted;
     int page_number = row_number/max_rows_per_page;
 
+    // Have to move this code to load_page() but have to handle lot of return statements.
+    // Having it here for now.
     if(page_number >= max_pages){
         printf("%s\n", "Maximum Pages reached");
         return MAXIMUM_PAGES_REACHED;
     }
-    // Checking if we need to create a new page.
-    void *page = table->pager->page;
-    printf("%d %d\n", page_number, table->pages_used);
 
-    if (page_number > table->pages_used){
-        page = table->pager->page = malloc(page_size);
-        table->pages_used += 1;
-    }
-    else{
-        // We have to load page from the File.
-        if (page_number != table->pager->page_number)
-        {
-            load_page(page_number, table, fptr);
-        }
-    }
-
-    table->pager->page_number = page_number;
-
-    // Required number of the row in a page.
-    int row_number_in_page = row_number%max_rows_per_page;
-    uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
-    printf("%s\n", "Here");
-    serialize(row, page + row_number_address);
+    Cursor* cursor = table_end(table);
+    serialize(row, cursor_value(cursor, fptr));
+    printf("%s\n", row->email);
     printf("%s:%d\n", "Row inserted", row_number);
+    free_object(cursor);
     return EXIT_SUCCESS;
-    // Freeing space occupuied by row.
 }
 
 
@@ -225,18 +266,12 @@ void fetch_row_from_table(int id, Row* row, Table* table){
 
 void print_all_rows(Row* row, Table* table, FILE* fptr){
     int start_row;
-    for(start_row=0; start_row <= table->rows_inserted;start_row++){
-        int page_number = start_row/max_rows_per_page;
-        
-        // Loading the page if its not loaded into the table yet.
-        if (page_number != table->pager->page_number){
-            load_page(page_number, table, fptr);    
-        }
-
-        int row_number_in_page = start_row%max_rows_per_page;
-        uint32_t row_number_address = (row_number_in_page * ROW_SIZE);
-        desrialise(table->pager->page+row_number_address,row);
+    // Initialising cursor to the start of the table
+    Cursor* cursor = table_start(table);
+    while(cursor->row_number <= table->rows_inserted){
+        desrialise(cursor_value(cursor, fptr),row);
         printf("%d,%s,%s\n", row->id, row->name, row->email);
+        advance_cursor(cursor);
     }
 }
 
