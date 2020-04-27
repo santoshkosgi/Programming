@@ -45,10 +45,45 @@ void print_prompt(){
     printf("db > ");
 }
 
+typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
+
+typedef struct 
+{
+    uint8_t node_type;
+    uint8_t is_root;
+    size_t num_of_rows;
+    void* parent_poniter;
+} Node;
+
+
+/* Format of LEAF Node.
+node_type, is_root, num_of_rows, parent_pointer, ROW1, ROW2, ...
+
+Format for internal node.
+node_type, is_root, num_of_rows, parent_pointer, key1, key2, key3.... <key1_ptr, <key2_ptr, <key3_ptr....>all_ptr
+*/
+
+
+
+
+// Declaring Offset of each attribute inside Node.
+const uint32_t NODE_TYPE_SIZE = sizeof(((Node*)0)->node_type);
+const uint32_t IS_ROOT_SIZE = sizeof(((Node*)0)->is_root);
+const uint32_t NUM_OF_ROWS_SIZE = sizeof(((Node*)0)->num_of_rows);
+const uint32_t PARENT_POINTER_SIZE = sizeof(((Node*)0)->parent_poniter);
+
+// OFFSETS
+const uint32_t NODE_TYPE_OFFSET = 0;
+const uint32_t IS_ROOT_OFFSET =  NODE_TYPE_OFFSET + NODE_TYPE_SIZE;
+const uint32_t NUM_OF_ROWS_OFFSET = IS_ROOT_OFFSET + IS_ROOT_SIZE;
+const uint32_t PARENT_POINTER_OFFSET = NUM_OF_ROWS_OFFSET + NUM_OF_ROWS_SIZE;
+const uint32_t SIZE_HEADER = NODE_TYPE_SIZE + IS_ROOT_SIZE + NUM_OF_ROWS_SIZE + PARENT_POINTER_OFFSET;
+const uint32_t DATA_OFFSET = SIZE_HEADER;
+
 
 typedef struct {
   char* buffer;
-  size_t buffer_length;
+  size_t  ;
   ssize_t input_length;
 } InputBuffer;
 
@@ -74,6 +109,7 @@ const int page_size = 4096;
 const int max_pages = 100;
 const int max_rows_per_page = page_size/ROW_SIZE;
 
+const uint32_t MAX_ROWS_PER_NODE =  (page_size - SIZE_HEADER)/ROW_SIZE;
 
 
 typedef struct{
@@ -411,7 +447,7 @@ int main(void)
                     continue;
             }
             else{
-                printf("Unknown statement\n");
+                printf("Something Wrong\n");
                 continue;
             }
         }
