@@ -15,9 +15,13 @@ Lets follow the following structure for writing this script.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define COLUMN_USERNAME_SIZE 32
 #define COLUMN_EMAIL_SIZE 255
+
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+
 typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
 
 
@@ -100,7 +104,7 @@ typedef struct
 Pager* initialise_pager(){
     Pager* page = malloc(sizeof((Pager*)0));
     page->page_number = -1;
-    page->page = NULL;
+    page->page = malloc(PAGE_SIZE);
     page->node_type = NODE_INTERNAL;
     page->is_root = 0;
     page->num_of_rows = 0;
@@ -126,6 +130,26 @@ Table* initialise_table(){
     return table;
 }
 
+void serialize(Row* source, void* destination){
+    /*
+    This function serialises data. Copies data from source which is of type row
+    to destination address starting with destination.
+    */
+    memcpy(destination+id_offset, &(source->id), ID_SIZE);
+    memcpy(destination+name_offset, source->name, NAME_SIZE);
+    memcpy(destination+email_offset, source->email, EMAIL_SIZE);
+}
+
+void desrialise(void* source, Row* destination){
+    /*
+    This function Copies data from address location starting with source to Row*
+    */
+    memcpy(&(destination->id), source+id_offset, ID_SIZE);
+    memcpy(&(destination->name), source+name_offset, NAME_SIZE);
+    memcpy(&(destination->email), source+email_offset, EMAIL_SIZE);
+
+}
+
 Pager* loadpage(short page_number, FILE* fptr){
     // This function loads a page specific page number to memory and returns the page.
     // If page number is not present it creates a new one and returns it.
@@ -139,10 +163,9 @@ Pager* loadpage(short page_number, FILE* fptr){
     // +1
 
     Pager* page = initialise_pager();
-    page->page = malloc(PAGE_SIZE);
-    page->page_number = page_number;
 
     if (page_number > index_of_last_page){
+        page->page_number = page_number;
         return page;
     }
 
@@ -156,7 +179,8 @@ Pager* loadpage(short page_number, FILE* fptr){
     memcpy(&page->is_root, page->page + IS_ROOT_OFFSET, IS_ROOT_SIZE);
     memcpy(&page->num_of_rows, page->page + NUM_OF_ROWS_OFFSET, NUM_OF_ROWS_SIZE);
     memcpy(&page->parent_pagenumber, page->page + PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE);
-
+    memcpy(&page->page_number, page->page + PAGE_NUMBER_OFFSET, PAGE_NUMBER_SIZE);
+//    page->page_number = page_number;
     return page;
 }
 
@@ -171,15 +195,54 @@ Cursor* table_start(Table* table){
     return cursor;
 }
 
+void write_table_data_to_file(Table* table, FILE* fptr){
+    if(table->number_of_rows_in_table > 0){
+        // Checking if new rows are inserted into DB or not
+        fseek(fptr, 0, SEEK_SET);
+        fwrite(&table->root_page_number, sizeof(table->root_page_number), 1, fptr);
+        fseek(fptr, sizeof(table->root_page_number), SEEK_SET);
+        fwrite(&table->number_of_rows_in_table, sizeof(table->number_of_rows_in_table), 1, fptr);
+
+        // Moving Pointer to root page.
+        fseek(fptr, table->pager->page_number * PAGE_SIZE, SEEK_SET);
+        fwrite(table->pager->page, PAGE_SIZE, 1, fptr);
+
+        // writing contents of root node.
+
+        fseek(fptr, table->root_page_number * PAGE_SIZE + NODE_TYPE_OFFSET, SEEK_SET);
+        fwrite(&table->pager->node_type, NODE_TYPE_SIZE, 1, fptr);
+        fseek(fptr, table->root_page_number * PAGE_SIZE + IS_ROOT_OFFSET, SEEK_SET);
+        fwrite(&table->pager->is_root, IS_ROOT_SIZE, 1, fptr);
+        fseek(fptr, table->root_page_number * PAGE_SIZE + NUM_OF_ROWS_OFFSET, SEEK_SET);
+        fwrite(&table->pager->num_of_rows, NUM_OF_ROWS_SIZE, 1, fptr);
+        fseek(fptr, table->root_page_number * PAGE_SIZE + PARENT_POINTER_OFFSET, SEEK_SET);
+        fwrite(&table->pager->parent_pagenumber, PARENT_POINTER_SIZE, 1, fptr);
+        fseek(fptr, table->root_page_number * PAGE_SIZE + PAGE_NUMBER_OFFSET, SEEK_SET);
+        fwrite(&table->pager->page_number, PAGE_NUMBER_SIZE, 1, fptr);
+    }
+}
+
 void* cursor_value(Cursor* cursor, FILE* fptr){
 
     // Checking if page is already loaded.
     if(cursor->page_number != cursor->table->pager->page_number){
         cursor->table->pager = loadpage(cursor->page_number, fptr);
     }
-    // Else its already loaded.
+
+    // Checking if maximum number of rows are inserted already
+    int max_number_of_rows_in_a_page = (PAGE_SIZE - DATA_OFFSET)/ROW_SIZE;
+    if (cursor->row_number >= max_number_of_rows_in_a_page){
+        printf("Maximum number of rows have been inserted\n");
+        write_table_data_to_file(cursor->table, fptr);
+        exit(EXIT_FAILURE);
+    }
+
     printf("%s%d\n", "rownumber:", cursor->row_number);
     uint32_t row_number_address = (cursor->row_number * ROW_SIZE);
+    printf("%s:%p", "Page Address", cursor->table->pager->page);
+    printf("%s:%d", "Data Offset", DATA_OFFSET);
+    printf("%s:%d", "Row Number Address", row_number_address);
+    printf("%s:%p", "Cursor Value", cursor->table->pager->page + DATA_OFFSET + row_number_address);
     return cursor->table->pager->page + DATA_OFFSET + row_number_address;
 }
 
@@ -189,8 +252,66 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
     Cursor* cursor = malloc(sizeof((Cursor*)0));
     cursor->table = table;
     cursor->page_number = table->root_page_number;
-    cursor->table->pager = loadpage(table->root_page_number, fptr);
-    cursor->row_number = table->pager->num_of_rows;
+    if(cursor->page_number != cursor->table->pager->page_number){
+        cursor->table->pager = loadpage(cursor->page_number, fptr);
+    }
+    Row* row = get_row();
+    short max_index_row = (cursor->table->pager->num_of_rows - 1);
+    short min_row_number = 0;
+    short max_row_number = max_index_row;
+
+    short mid;
+    // Binary Search code goes here.
+    // Following code finds the whether the given key is present or not, if its not present,
+    // it finds the number which is just higher that the key value.
+    while (min_row_number < max_row_number){
+        mid = floor((min_row_number + max_row_number)/2);
+        desrialise(cursor->table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
+        if (key > row->id){
+            min_row_number = mid + 1;
+        }
+        else if (key < row->id){
+            max_row_number = mid;
+        }
+        else{
+            // Checking if key is already present.
+            printf("Duplicate Primary Key Error\n");
+            write_table_data_to_file(cursor->table, fptr);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Checking if there are no rows present.
+    if (max_row_number == -1){
+        free_object(row);
+        cursor->row_number = 0;
+        return cursor;
+    }
+
+    // Checking if key is greater than last element also.
+    desrialise(cursor->table->pager->page + DATA_OFFSET + (max_index_row * ROW_SIZE), row);
+
+    if (key > row->id){
+        // Making max_row_number point next index.
+        max_row_number += 1;
+    }
+
+    // Checking if key is same as last element.
+    if (key == row->id){
+        printf("Duplicate Primary Key Error\n");
+        write_table_data_to_file(cursor->table, fptr);
+        free_object(row);
+        exit(EXIT_FAILURE);
+    }
+
+    // Moving the data to make space for new entry.
+    if (max_row_number <=  max_index_row){
+        short num_rows_to_be_copied = (max_index_row - max_row_number + 1);
+        memcpy(cursor->table->pager->page + DATA_OFFSET + ((max_row_number+1) * ROW_SIZE), cursor->table->pager->page + DATA_OFFSET + (max_row_number * ROW_SIZE), (num_rows_to_be_copied * ROW_SIZE));
+    }
+
+    free_object(row);
+    cursor->row_number = max_row_number;
     return cursor;
 }
 
@@ -224,27 +345,6 @@ int process_non_sql_statements(char* statement){
     return EXIT_FAILURE;
 }
 
-void serialize(Row* source, void* destination){
-    /*
-    This function serialises data. Copies data from source which is of type row
-    to destination address starting with destination.
-    */
-    memcpy(destination+id_offset, &(source->id), ID_SIZE);
-    memcpy(destination+name_offset, source->name, NAME_SIZE);
-    memcpy(destination+email_offset, source->email, EMAIL_SIZE);
-}
-
-void desrialise(void* source, Row* destination){
-    /*
-    This function Copies data from address location starting with source to Row*
-    */
-    memcpy(&(destination->id), source+id_offset, ID_SIZE);
-    memcpy(&(destination->name), source+name_offset, NAME_SIZE);
-    memcpy(&(destination->email), source+email_offset, EMAIL_SIZE);
-
-}
-
-
 int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     /*
     This function finds the corresponding page and corresponding memory location in the page to copy the row data, using
@@ -257,11 +357,13 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
         printf("%s\n", "Check the length of fields supplied for Name and Email columns.");
         return PREPARE_STRING_TOO_LONG;
     }
-
-    Cursor* cursor = table_start(table);
-    serialize(row, cursor_value(table_iterator(row->id, table, fptr), fptr));
+    Cursor* cursor = table_iterator(row->id, table, fptr);
+    serialize(row, cursor_value(cursor, fptr));
     table->pager->num_of_rows += 1;
     table->number_of_rows_in_table += 1;
+    printf("%s:%zu\n", "num_of_rows in page", table->pager->num_of_rows);
+    printf("%s:%hd\n", "Page Number", table->pager->page_number);
+    printf("%s:%hd\n", "Parent Page Number", table->pager->parent_pagenumber);
     printf("%s:%d\n", "Row inserted", table->number_of_rows_in_table);
     free_object(cursor);
     return EXIT_SUCCESS;
@@ -330,6 +432,9 @@ void free_buffer(InputBuffer* input_buffer){
 
 int main(void)
 {
+    InputBuffer* input_buffer = NULL;
+    input_buffer = get_inputbuffer();
+
     int max_number_of_rows_in_a_page = (PAGE_SIZE - DATA_OFFSET)/ROW_SIZE;
     printf("%s:%d", "Max number of rows in a page", max_number_of_rows_in_a_page);
     printf("\n");
@@ -358,9 +463,6 @@ int main(void)
         table->root_page_number = 1;
     }
 
-    InputBuffer* input_buffer = NULL;
-    input_buffer = get_inputbuffer();
-
     while(true){
 
         print_prompt();
@@ -377,30 +479,7 @@ int main(void)
             if (process_non_sql_statements(input_buffer->buffer) == EXIT_SUCCESS){
                 free_buffer(input_buffer);
                 // Write to File.
-                if(table->number_of_rows_in_table > 0){
-                    // Checking if new rows are inserted into DB or not
-                    fseek(fptr, 0, SEEK_SET);
-                    fwrite(&table->root_page_number, sizeof(table->root_page_number), 1, fptr);
-                    fseek(fptr, sizeof(table->root_page_number), SEEK_SET);
-                    fwrite(&table->number_of_rows_in_table, sizeof(table->number_of_rows_in_table), 1, fptr);
-
-                    // Moving Pointer to root page.
-                    fseek(fptr, table->root_page_number * PAGE_SIZE, SEEK_SET);
-                    fwrite(table->pager->page, PAGE_SIZE, 1, fptr);
-
-                    // writing contents of root node.
-
-                    fseek(fptr, table->root_page_number * PAGE_SIZE + NODE_TYPE_OFFSET, SEEK_SET);
-                    fwrite(&table->pager->node_type, NODE_TYPE_SIZE, 1, fptr);
-                    fseek(fptr, table->root_page_number * PAGE_SIZE + IS_ROOT_OFFSET, SEEK_SET);
-                    fwrite(&table->pager->is_root, IS_ROOT_SIZE, 1, fptr);
-                    fseek(fptr, table->root_page_number * PAGE_SIZE + NUM_OF_ROWS_OFFSET, SEEK_SET);
-                    fwrite(&table->pager->num_of_rows, NUM_OF_ROWS_SIZE, 1, fptr);
-                    fseek(fptr, table->root_page_number * PAGE_SIZE + PARENT_POINTER_OFFSET, SEEK_SET);
-                    fwrite(&table->pager->parent_pagenumber, PARENT_POINTER_SIZE, 1, fptr);
-                    fseek(fptr, table->root_page_number * PAGE_SIZE + PAGE_NUMBER_OFFSET, SEEK_SET);
-                    fwrite(&table->pager->page_number, PAGE_NUMBER_SIZE, 1, fptr);
-                }
+                write_table_data_to_file(table, fptr);
                 free(table);
                 fclose(fptr);
                 exit(EXIT_SUCCESS);
@@ -411,6 +490,7 @@ int main(void)
             }
         }
         else{
+            printf("%s:%d\n", "Root Page Number is", table->root_page_number);
             if (process_sql_statements(input_buffer->buffer, table, fptr) == EXIT_SUCCESS){
                 continue;
             }
