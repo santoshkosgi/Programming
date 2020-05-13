@@ -292,6 +292,7 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
     // points the cursor accordingly.
     Cursor* cursor = malloc(sizeof(Cursor));
     // cursor->table = table;
+    cursor->page_number = table->root_page_number;
     table->pager = loadpage(table, cursor->page_number, fptr);
 
     // Traversing through the B+ tree to find the exact Node where this should be inserted.
@@ -589,7 +590,7 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
 void print_all_rows(Row* row, Table* table, FILE* fptr){
     short start_row;
     Cursor* cursor = table_start(table);
-//    cursor->page_number = 2;
+    cursor->page_number = 2;
     for(start_row=0; start_row < table->number_of_rows_in_table; start_row++){
         // Loading the page if its not loaded into the table yet.
         cursor->row_number = start_row;
