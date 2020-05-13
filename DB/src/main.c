@@ -45,7 +45,7 @@ typedef struct {
 } InputBuffer;
 
 typedef struct{
-    uint32_t id;
+    short id;
     // Increasing length of name and email by one, so that it can accommodate the end of string charecter.
     char name[COLUMN_USERNAME_SIZE+1];
     char email[COLUMN_EMAIL_SIZE+1];
@@ -63,9 +63,9 @@ const int email_offset = name_offset + NAME_SIZE;
 typedef struct Pager
 {
     void* page;
-    uint8_t node_type;
-    uint8_t is_root;
-    size_t num_of_rows;
+    short node_type;
+    short is_root;
+    short num_of_rows;
     short parent_pagenumber;
     short page_number;
 } Pager;
@@ -100,7 +100,7 @@ Pager* initialise_internalnode(){
     Pager* page = malloc(sizeof((Pager*)0));
     page->page_number = -1;
     page->page = malloc(PAGE_SIZE);
-    page->node_type = NODE_INTERNAL;
+    page->node_type = 0;
     page->is_root = 0;
     // This stores the number of keys present in the an internal node.
     page->num_of_rows = 0;
@@ -128,8 +128,8 @@ Pager* initialise_pager(){
     Pager* page = malloc(sizeof(Pager));
     page->page_number = -1;
     page->page = malloc(PAGE_SIZE);
-    page->node_type = NODE_INTERNAL;
-    page->is_root = 0;
+    page->node_type = 1;
+    page->is_root = 1;
     page->num_of_rows = 0;
     page->parent_pagenumber = -1;
     return page;
@@ -171,10 +171,57 @@ void desrialise(void* source, Row* destination){
     memcpy(&(destination->email), source+email_offset, EMAIL_SIZE);
 
 }
+void write_table_data_to_file(Table* table, FILE* fptr){
+    /*
+     * This function writes page data which is currently loaded to file. A check is made if pagenumber
+     * is -1 do not write. We assign pagenumber == -1, when we initialise page. which means that there is not data.
+     */
+    if (table->pager->page_number == -1){
+        return;
+    }
 
-Pager* loadpage(short page_number, FILE* fptr){
-    // This function loads a page specific page number to memory and returns the page.
-    // If page number is not present it creates a new one and returns it.
+    if(table->number_of_rows_in_table > 0){
+        // Checking if new rows are inserted into DB or not
+        fseek(fptr, 0, SEEK_SET);
+        fwrite(&table->root_page_number, sizeof(table->root_page_number), 1, fptr);
+        fseek(fptr, sizeof(table->root_page_number), SEEK_SET);
+        fwrite(&table->number_of_rows_in_table, sizeof(table->number_of_rows_in_table), 1, fptr);
+        fseek(fptr, sizeof(table->root_page_number) + sizeof(table->number_of_rows_in_table), SEEK_SET);
+        fwrite(&table->number_of_pages, sizeof(table->number_of_pages), 1, fptr);
+
+        // Moving Pointer to the Page.
+        fseek(fptr, table->pager->page_number * PAGE_SIZE, SEEK_SET);
+        fwrite(table->pager->page, PAGE_SIZE, 1, fptr);
+
+        // writing contents of root node.
+
+        fseek(fptr, table->pager->page_number * PAGE_SIZE + NODE_TYPE_OFFSET, SEEK_SET);
+        fwrite(&table->pager->node_type, NODE_TYPE_SIZE, 1, fptr);
+        fseek(fptr, table->pager->page_number * PAGE_SIZE + IS_ROOT_OFFSET, SEEK_SET);
+        fwrite(&table->pager->is_root, IS_ROOT_SIZE, 1, fptr);
+        fseek(fptr, table->pager->page_number * PAGE_SIZE + NUM_OF_ROWS_OFFSET, SEEK_SET);
+        fwrite(&table->pager->num_of_rows, NUM_OF_ROWS_SIZE, 1, fptr);
+        fseek(fptr, table->pager->page_number * PAGE_SIZE + PARENT_POINTER_OFFSET, SEEK_SET);
+        fwrite(&table->pager->parent_pagenumber, PARENT_POINTER_SIZE, 1, fptr);
+        fseek(fptr, table->pager->page_number * PAGE_SIZE + PAGE_NUMBER_OFFSET, SEEK_SET);
+        fwrite(&table->pager->page_number, PAGE_NUMBER_SIZE, 1, fptr);
+    }
+}
+
+
+Pager* loadpage(Table* table, short page_number, FILE* fptr){
+    /* This function loads a page specific page number to memory and returns the page.
+     If page number is not present it creates a new one and returns it.
+     */
+
+    // Checking if required page is already loaded. If yes, just returning the loaded page
+    if(page_number == table->pager->page_number){
+        return table->pager;
+    }
+
+    // Before loading a new page, lets persist the page which is already loaded.
+    write_table_data_to_file(table, fptr);
+
     int len;
     fseek(fptr, 0, SEEK_END);
     long len_of_file = ftell(fptr);
@@ -188,6 +235,8 @@ Pager* loadpage(short page_number, FILE* fptr){
 
     if (page_number > index_of_last_page){
         page->page_number = page_number;
+        // Increasing the number of pages for the table by 1.
+        table->number_of_pages += 1;
         return page;
     }
 
@@ -217,43 +266,12 @@ Cursor* table_start(Table* table){
     return cursor;
 }
 
-void write_table_data_to_file(Table* table, FILE* fptr){
-    if(table->number_of_rows_in_table > 0){
-        // Checking if new rows are inserted into DB or not
-        fseek(fptr, 0, SEEK_SET);
-        fwrite(&table->root_page_number, sizeof(table->root_page_number), 1, fptr);
-        fseek(fptr, sizeof(table->root_page_number), SEEK_SET);
-        fwrite(&table->number_of_rows_in_table, sizeof(table->number_of_rows_in_table), 1, fptr);
-
-        // Moving Pointer to root page.
-        fseek(fptr, table->pager->page_number * PAGE_SIZE, SEEK_SET);
-        fwrite(table->pager->page, PAGE_SIZE, 1, fptr);
-
-        // writing contents of root node.
-
-        fseek(fptr, table->root_page_number * PAGE_SIZE + NODE_TYPE_OFFSET, SEEK_SET);
-        fwrite(&table->pager->node_type, NODE_TYPE_SIZE, 1, fptr);
-        fseek(fptr, table->root_page_number * PAGE_SIZE + IS_ROOT_OFFSET, SEEK_SET);
-        fwrite(&table->pager->is_root, IS_ROOT_SIZE, 1, fptr);
-        fseek(fptr, table->root_page_number * PAGE_SIZE + NUM_OF_ROWS_OFFSET, SEEK_SET);
-        fwrite(&table->pager->num_of_rows, NUM_OF_ROWS_SIZE, 1, fptr);
-        fseek(fptr, table->root_page_number * PAGE_SIZE + PARENT_POINTER_OFFSET, SEEK_SET);
-        fwrite(&table->pager->parent_pagenumber, PARENT_POINTER_SIZE, 1, fptr);
-        fseek(fptr, table->root_page_number * PAGE_SIZE + PAGE_NUMBER_OFFSET, SEEK_SET);
-        fwrite(&table->pager->page_number, PAGE_NUMBER_SIZE, 1, fptr);
-    }
-}
 
 void* cursor_value(Cursor* cursor, Table* table, FILE* fptr){
 
-    // Checking if page is already loaded.
-    if(cursor->page_number != table->pager->page_number){
-        // free_object(table->pager);
-        table->pager = loadpage(cursor->page_number, fptr);
-    }
+    table->pager = loadpage(table, cursor->page_number, fptr);
 
     // Checking if maximum number of rows are inserted already
-    int max_number_of_rows_in_a_page = (PAGE_SIZE - DATA_OFFSET)/ROW_SIZE;
     if (cursor->row_number >= max_number_of_rows_in_a_page){
         printf("Maximum number of rows have been inserted\n");
         write_table_data_to_file(table, fptr);
@@ -274,21 +292,87 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
     // points the cursor accordingly.
     Cursor* cursor = malloc(sizeof(Cursor));
     // cursor->table = table;
-    cursor->page_number = table->root_page_number;
-    if(cursor->page_number != table->pager->page_number){
-        // Freeing the previously allocated page.
-        // free_object(table->pager);
-        table->pager = loadpage(cursor->page_number, fptr);
+    table->pager = loadpage(table, cursor->page_number, fptr);
+
+    // Traversing through the B+ tree to find the exact Node where this should be inserted.
+    // If root node is also leaf, Nothing should be done.
+    while (table->pager->node_type != 1){
+        short left_page_number, right_page_number, key_value;
+        memcpy(&left_page_number, table->pager->page + DATA_OFFSET, PAGE_NUMBER_SIZE);
+        memcpy(&key_value, table->pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE, ID_SIZE);
+        memcpy(&right_page_number, table->pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE + ID_SIZE, PAGE_NUMBER_SIZE);
+        if (key <= left_page_number){
+            table->pager = loadpage(table, left_page_number, fptr);
+        } else{
+            table->pager = loadpage(table, right_page_number, fptr);
+        }
     }
+
     Row* row = get_row();
     short max_index_row = (table->pager->num_of_rows - 1);
-    short min_row_number = 0;
     short max_row_number = max_index_row;
+    short min_row_number = 0;
 
-    short mid;
+    short mid, mid_key;
+    // Checking if maximum number of rows are already inserted in the Node.
+    // If its inserted Split the Node and Move one of the key to root and
+    if (table->pager->num_of_rows == max_number_of_rows_in_a_page){
+        Pager* pager = table->pager;
+        printf("Maximum number of rows have been inserted\n");
+        mid = floor((min_row_number + max_row_number)/2);
+        desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
+        mid_key = row->id;
+        Pager* new_pager = loadpage(table, table->number_of_pages+1, fptr);
+        // copying rows starting with index mid+1.
+        new_pager->num_of_rows = table->pager->num_of_rows - (mid + 1);
+        new_pager->is_root = 0;
+        // Copying into start of first row and mid+1 row.
+        memcpy(new_pager->page + DATA_OFFSET + (0 * ROW_SIZE), table->pager->page + DATA_OFFSET + ((mid+1) * ROW_SIZE),
+                (new_pager->num_of_rows * ROW_SIZE));
+        // Reducing number of rows in the current page.
+        table->pager->num_of_rows -= new_pager->num_of_rows;
+
+        Pager* root_pager =  loadpage(table, table->number_of_pages+1, fptr);
+
+        // Making root
+        root_pager->parent_pagenumber = -1;
+        root_pager->node_type = 0;
+        root_pager->is_root = 1;
+        table->root_page_number = root_pager->page_number;
+        if (table->pager->is_root == 1){
+            // Checking if current page is root
+            table->pager->is_root = 0;
+            table->pager->parent_pagenumber = root_pager->page_number;
+        }
+        // Assigning it to same parent
+        new_pager->parent_pagenumber = table->pager->parent_pagenumber;
+
+        // Copy keys and children page numbers to root node.
+        memcpy(root_pager->page + DATA_OFFSET + 0, &(table->pager->page_number), PAGE_NUMBER_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE, &(mid_key), ID_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE + ID_SIZE, &(new_pager->page_number), PAGE_NUMBER_SIZE);
+
+        write_table_data_to_file(table, fptr);
+        table->pager = new_pager;
+        write_table_data_to_file(table, fptr);
+        table->pager = root_pager;
+        write_table_data_to_file(table, fptr);
+
+        // Loading the appropriate page to insert key.
+        if (key <= mid_key){
+            table->pager = pager;
+        } else{
+            table->pager = new_pager;
+        }
+    }
+
+
     // Binary Search code goes here.
     // Following code finds the whether the given key is present or not, if its not present,
     // it finds the number which is just higher that the key value.
+    max_index_row = (table->pager->num_of_rows - 1);
+    max_row_number = max_index_row;
+    min_row_number = 0;
     while (min_row_number < max_row_number){
         mid = floor((min_row_number + max_row_number)/2);
         desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
@@ -336,6 +420,7 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
     }
 
     free(row);
+    cursor->page_number = table->pager->page_number;
     cursor->row_number = max_row_number;
     return cursor;
 }
@@ -383,14 +468,14 @@ Cursor* traverse_tree(int key, Table* table, FILE* fptr){
     Cursor* cursor = table_start(table);
     // Load the root page if its not loaded.
     if (cursor->page_number != table->pager->page_number){
-        table->pager = loadpage(cursor->page_number, fptr);
+        table->pager = loadpage(table, cursor->page_number, fptr);
     }
 
     short key_index;
     short last_key;
     short req_pagenumber_index, req_pagenumber;
     // Traverse through the Tree till we are in a leaf node.
-    while (table->pager->node_type != NODE_LEAF){
+    while (table->pager->node_type != 1){
         key_index = binary_search_internalnode(key, table->pager);
         /*
          * Its like this. List of keys are stored and list of page numbers are stored. number of pager numbers
@@ -411,7 +496,7 @@ Cursor* traverse_tree(int key, Table* table, FILE* fptr){
         //
 
         req_pagenumber = get_key_at_a_location(table->pager->num_of_rows + req_pagenumber_index, table->pager);
-        table->pager = loadpage(req_pagenumber, fptr);
+        table->pager = loadpage(table, req_pagenumber, fptr);
     }
 
     // After while loop we get a leaf node where the given key can be inserted.
@@ -429,7 +514,7 @@ Cursor* traverse_tree(int key, Table* table, FILE* fptr){
     if (table->pager->num_of_rows == max_number_of_rows_in_a_page){
         Pager* pager = initialise_pager();
         pager->parent_pagenumber = table->pager->parent_pagenumber;
-        pager->node_type = NODE_LEAF;
+        pager->node_type = 1;
         // Check this.
         pager->is_root = 0;
         pager->num_of_rows = floor(table->pager->num_of_rows/2);
@@ -492,7 +577,7 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
     serialize(row, cursor_value(cursor, table, fptr));
     table->pager->num_of_rows += 1;
     table->number_of_rows_in_table += 1;
-    printf("%s:%zu\n", "num_of_rows in page", table->pager->num_of_rows);
+    printf("%s:%hd\n", "num_of_rows in page", table->pager->num_of_rows);
     printf("%s:%hd\n", "Page Number", table->pager->page_number);
     printf("%s:%hd\n", "Parent Page Number", table->pager->parent_pagenumber);
     printf("%s:%d\n", "Row inserted", table->number_of_rows_in_table);
@@ -504,6 +589,7 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
 void print_all_rows(Row* row, Table* table, FILE* fptr){
     short start_row;
     Cursor* cursor = table_start(table);
+//    cursor->page_number = 2;
     for(start_row=0; start_row < table->number_of_rows_in_table; start_row++){
         // Loading the page if its not loaded into the table yet.
         cursor->row_number = start_row;
@@ -522,7 +608,7 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
         strcpy(row->name , "a");
         strcpy(row->email , "b");
 
-        for (int j = 0; j < 13; ++j) {
+        for (int j = 0; j < max_number_of_rows_in_a_page; ++j) {
             row->id = j;
             insert_row_into_table(row, table, fptr);
         }
@@ -532,7 +618,7 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
     if (strncmp(statement, "insert", 6) == 0){
         printf("Insert statement will be processed\n");
         Row* row = get_row();
-        int args_assigned = sscanf(statement, "insert %d %s %s", &(row->id), row->name, row->email);
+        int args_assigned = sscanf(statement, "insert %hd %s %s", &(row->id), row->name, row->email);
 
         if (args_assigned != 3){
             printf("Synatx Error\n");
@@ -604,6 +690,9 @@ int main(void)
         fread(&table->root_page_number, sizeof(table->root_page_number), 1, fptr);
         fseek(fptr, sizeof(table->root_page_number), SEEK_SET);
         fread(&table->number_of_rows_in_table, sizeof(table->number_of_rows_in_table), 1, fptr);
+        fseek(fptr, sizeof(table->root_page_number) + sizeof(table->number_of_rows_in_table), SEEK_SET);
+        fread(&table->number_of_pages, sizeof(table->number_of_pages), 1, fptr);
+
     }
     else{
         table->root_page_number = 1;
