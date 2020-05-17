@@ -308,7 +308,7 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
         memcpy(&right_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
                 PAGE_NUMBER_SIZE);
 
-        if (key <= left_page_number){
+        if (key <= key_value){
             table->pager = loadpage(table, left_page_number, fptr);
         } else{
             table->pager = loadpage(table, right_page_number, fptr);
