@@ -91,7 +91,10 @@ const short max_number_of_rows_in_a_page = (PAGE_SIZE - DATA_OFFSET)/ROW_SIZE;
 // Number of keys and their corresponding pointers that can be stored in an internal node.
 // ID_SIZE is the size of key. PAGE_NUMBER_SIZE is the size of the page number.
 // Subtracting one because, number of pointers/(page numbers) is one greater than number of keys.
-int max_number_of_keys = (PAGE_SIZE - DATA_OFFSET)/(ID_SIZE + PAGE_NUMBER_SIZE) - 1;
+const short max_number_of_key_pairs = (PAGE_SIZE - DATA_OFFSET)/(ID_SIZE + PAGE_NUMBER_SIZE) - 1;
+const short max_number_of_keys = max_number_of_key_pairs/2;
+const short max_number_of_pointers = max_number_of_keys + 1;
+
 
 // Following function defines the structure of internal node.
 // Internal node doesn't store data. It stores meta data about node and keys and page numbers of children.
@@ -299,9 +302,12 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
     // If root node is also leaf, Nothing should be done.
     while (table->pager->node_type != 1){
         short left_page_number, right_page_number, key_value;
-        memcpy(&left_page_number, table->pager->page + DATA_OFFSET, PAGE_NUMBER_SIZE);
-        memcpy(&key_value, table->pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE, ID_SIZE);
-        memcpy(&right_page_number, table->pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE + ID_SIZE, PAGE_NUMBER_SIZE);
+        memcpy(&key_value, table->pager->page + DATA_OFFSET, ID_SIZE);
+        memcpy(&left_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0,
+               PAGE_NUMBER_SIZE);
+        memcpy(&right_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
+                PAGE_NUMBER_SIZE);
+
         if (key <= left_page_number){
             table->pager = loadpage(table, left_page_number, fptr);
         } else{
@@ -339,6 +345,7 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
         root_pager->parent_pagenumber = -1;
         root_pager->node_type = 0;
         root_pager->is_root = 1;
+        root_pager->num_of_rows = 1;
         table->root_page_number = root_pager->page_number;
         if (table->pager->is_root == 1){
             // Checking if current page is root
@@ -349,9 +356,12 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
         new_pager->parent_pagenumber = table->pager->parent_pagenumber;
 
         // Copy keys and children page numbers to root node.
-        memcpy(root_pager->page + DATA_OFFSET + 0, &(table->pager->page_number), PAGE_NUMBER_SIZE);
-        memcpy(root_pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE, &(mid_key), ID_SIZE);
-        memcpy(root_pager->page + DATA_OFFSET + PAGE_NUMBER_SIZE + ID_SIZE, &(new_pager->page_number), PAGE_NUMBER_SIZE);
+        // Structure is to store all the keys starting at data offset and then all the pointers.
+        memcpy(root_pager->page + DATA_OFFSET + 0, &(mid_key), ID_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0, &(pager->page_number),
+                PAGE_NUMBER_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
+                &(new_pager->page_number), PAGE_NUMBER_SIZE);
 
         write_table_data_to_file(table, fptr);
         table->pager = new_pager;
@@ -587,6 +597,40 @@ int insert_row_into_table(Row* row, Table* table, FILE* fptr){
 }
 
 
+void inorder_traversal(Row* row, Table* table, FILE* fptr){
+    /*
+     * This function does the inorder traversal of the B+tree and prints the rows in sorted order.
+     */
+    // Checking if node is an internal node, processing all the children of it.
+    // if its a leaf node print all the rows and return
+    if (table->pager->node_type == 1){
+        short start_row;
+        for(start_row=0; start_row < table->pager->num_of_rows; start_row++){
+            // Loading the page if its not loaded into the table yet.
+            desrialise(table->pager->page + DATA_OFFSET + (start_row*ROW_SIZE), row);
+            printf("%d,%s,%s\n", row->id, row->name, row->email);
+        }
+        return;
+    }
+    short* array = malloc(PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
+    memcpy(array, table->pager->page + DATA_OFFSET + ((max_number_of_keys * ID_SIZE) * table->pager->num_of_rows),
+            PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
+    short start_page;
+//    short left_page_number, right_page_number, key_value;
+//    memcpy(&key_value, table->pager->page + DATA_OFFSET, ID_SIZE);
+//    memcpy(&left_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0,
+//           PAGE_NUMBER_SIZE);
+//    memcpy(&right_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
+//           PAGE_NUMBER_SIZE);
+    short num_of_rows = table->pager->num_of_rows;
+    for (start_page=0; start_page < num_of_rows + 1; start_page++){
+        Pager* new_pager = loadpage(table, array[start_page], fptr);
+        table->pager = new_pager;
+        inorder_traversal(row, table, fptr);
+    }
+
+}
+
 void print_all_rows(Row* row, Table* table, FILE* fptr){
     short start_row;
     Cursor* cursor = table_start(table);
@@ -609,8 +653,12 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
         strcpy(row->name , "a");
         strcpy(row->email , "b");
 
-        for (int j = 0; j < max_number_of_rows_in_a_page; ++j) {
-            row->id = j;
+        for (int j = 1; j < max_number_of_rows_in_a_page + 1; ++j) {
+            if (j < 7){
+                row->id = 100 + j;
+            } else{
+                row->id = 1000 + j;
+            }
             insert_row_into_table(row, table, fptr);
         }
         free(row);
@@ -635,7 +683,8 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
         // Adding support to print all the rows
     else if(strncmp(statement, "select_all", 10) == 0){
         Row* row = get_row();
-        print_all_rows(row, table, fptr);
+        table->pager = loadpage(table, table->root_page_number, fptr);
+        inorder_traversal(row, table, fptr);
         free(row);
         return EXIT_SUCCESS;
     }
