@@ -300,27 +300,43 @@ Cursor* table_iterator(int key, Table* table, FILE* fptr){
 
     // Traversing through the B+ tree to find the exact Node where this should be inserted.
     // If root node is also leaf, Nothing should be done.
-    while (table->pager->node_type != 1){
-        short left_page_number, right_page_number, key_value;
-        memcpy(&key_value, table->pager->page + DATA_OFFSET, ID_SIZE);
-        memcpy(&left_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0,
-               PAGE_NUMBER_SIZE);
-        memcpy(&right_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
-                PAGE_NUMBER_SIZE);
-
-        if (key <= key_value){
-            table->pager = loadpage(table, left_page_number, fptr);
-        } else{
-            table->pager = loadpage(table, right_page_number, fptr);
-        }
-    }
-
     Row* row = get_row();
     short max_index_row = (table->pager->num_of_rows - 1);
     short max_row_number = max_index_row;
     short min_row_number = 0;
 
     short mid, mid_key;
+
+    while (table->pager->node_type != 1){
+        short* array_keys = malloc(ID_SIZE * table->pager->num_of_rows);
+        short* array_pagenumbers = malloc(PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
+        memcpy(array_keys, table->pager->page + DATA_OFFSET, ID_SIZE * table->pager->num_of_rows);
+        memcpy(array_pagenumbers, table->pager->page+ DATA_OFFSET+(ID_SIZE * max_number_of_keys),
+                PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
+        min_row_number = 0;
+        max_row_number = table->pager->num_of_rows - 1;
+
+        // Binary search such that, if number is not found it will return the just greater element in the array.
+        if (key > array_keys[max_row_number]){
+            table->pager = loadpage(table, array_pagenumbers[max_row_number + 1], fptr);
+            continue;
+        }
+        while (min_row_number < max_row_number){
+            mid = floor((min_row_number + max_row_number)/2);
+            memcpy(&mid_key, table->pager->page + DATA_OFFSET + (mid * ID_SIZE), ID_SIZE);
+            if (key > array_keys[mid]){
+                min_row_number = mid + 1;
+            } else{
+                max_row_number = mid;
+            }
+        }
+
+        table->pager = loadpage(table, array_pagenumbers[max_row_number], fptr);
+    }
+    max_index_row = (table->pager->num_of_rows - 1);
+    max_row_number = max_index_row;
+    min_row_number = 0;
+
     // Checking if maximum number of rows are already inserted in the Node.
     // If its inserted Split the Node and Move one of the key to root and
     if (table->pager->num_of_rows == max_number_of_rows_in_a_page){
@@ -628,6 +644,7 @@ void inorder_traversal(Row* row, Table* table, FILE* fptr){
         table->pager = new_pager;
         inorder_traversal(row, table, fptr);
     }
+    free(array);
 
 }
 
