@@ -305,103 +305,136 @@ Pager* insert_key_in_internalnode(short key, Table* table, FILE* fptr){
     short min_row_number = 0;
 
     short mid, mid_key;
-    if (table->pager->num_of_rows == max_number_of_keys){
-        Pager* pager = table->pager;
+    if (table->pager->node_type == 1 && table->pager->num_of_rows < max_number_of_rows_in_a_page){
+        return table->pager;
+    }
+    if (table->pager->node_type == 0 && table->pager->num_of_rows < max_number_of_keys){
+        return table->pager;
+    }
+
+    Pager *pager = table->pager;
+    Pager *new_pager = loadpage(table, table->number_of_pages + 1, fptr);
+    // Checking if the node we are trying to split is a leaf node.
+    if (table->pager->node_type == 1) {
+        printf("Maximum number of rows have been inserted\n");
+        mid = floor((min_row_number + max_row_number) / 2);
+        desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
+        mid_key = row->id;
+        // copying rows starting with index mid+1.
+        new_pager->num_of_rows = table->pager->num_of_rows - (mid + 1);
+        new_pager->is_root = 0;
+        // Copying into start of first row and mid+1 row.
+        memcpy(new_pager->page + DATA_OFFSET + (0 * ROW_SIZE),
+               table->pager->page + DATA_OFFSET + ((mid + 1) * ROW_SIZE),
+               (new_pager->num_of_rows * ROW_SIZE));
+        // Reducing number of rows in the current page.
+        table->pager->num_of_rows -= new_pager->num_of_rows;
+    } else {
         printf("Maximum number of rows have been inserted\n");
         mid = floor((min_row_number + max_row_number)/2);
         desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
         mid_key = row->id;
-        Pager* new_pager = loadpage(table, table->number_of_pages+1, fptr);
         // copying rows starting with index mid+1.
         new_pager->num_of_rows = table->pager->num_of_rows - (mid + 1);
         new_pager->is_root = 0;
+        new_pager->node_type = 0;
         // Copying into start of first row and mid+1 row.
         memcpy(new_pager->page + DATA_OFFSET + (0 * ROW_SIZE), table->pager->page + DATA_OFFSET + ((mid+1) * ROW_SIZE),
                (new_pager->num_of_rows * ROW_SIZE));
         // Reducing number of rows in the current page.
         table->pager->num_of_rows -= new_pager->num_of_rows;
+    }
 
-        // We have to check for two conditions here if table->pager is a root node or not
-        // If its root node we have to insert a root node and insert the key and return the
-        // corresponding node based on the key value.
-        if (pager->is_root == 1){
-            Pager* root_pager =  loadpage(table, table->number_of_pages+1, fptr);
-            root_pager->parent_pagenumber = -1;
-            root_pager->node_type = 0;
-            root_pager->is_root = 1;
-            root_pager->num_of_rows = 1;
-            table->root_page_number = root_pager->page_number;
-            pager->is_root = 0;
-            pager->parent_pagenumber = root_pager->page_number;
-            new_pager->parent_pagenumber = table->pager->parent_pagenumber;
-            memcpy(root_pager->page + DATA_OFFSET + 0, &(mid_key), ID_SIZE);
-            memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0, &(pager->page_number),
-                   PAGE_NUMBER_SIZE);
-            memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
-                   &(new_pager->page_number), PAGE_NUMBER_SIZE);
+    // We have to check for two conditions here if table->pager is a root node or not
+    // If its root node we have to insert a root node and insert the key and return the
+    // corresponding node based on the key value.
+    if (pager->is_root == 1){
+        Pager* root_pager =  loadpage(table, table->number_of_pages+1, fptr);
+        root_pager->parent_pagenumber = -1;
+        root_pager->node_type = 0;
+        root_pager->is_root = 1;
+        root_pager->num_of_rows = 1;
+        table->root_page_number = root_pager->page_number;
+        pager->is_root = 0;
+        pager->parent_pagenumber = root_pager->page_number;
+        new_pager->parent_pagenumber = table->pager->parent_pagenumber;
+        memcpy(root_pager->page + DATA_OFFSET + 0, &(mid_key), ID_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0, &(pager->page_number),
+               PAGE_NUMBER_SIZE);
+        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
+               &(new_pager->page_number), PAGE_NUMBER_SIZE);
 
-            write_table_data_to_file(table, fptr);
-            table->pager = new_pager;
-            write_table_data_to_file(table, fptr);
-            table->pager = root_pager;
-            write_table_data_to_file(table, fptr);
+        write_table_data_to_file(table, fptr);
+        table->pager = new_pager;
+        write_table_data_to_file(table, fptr);
+        table->pager = root_pager;
+        write_table_data_to_file(table, fptr);
 
-            // Loading the appropriate page to insert key.
-            if (key <= mid_key){
-                return pager;
-            } else{
-                return new_pager;
-            }
-        }
-
-        Pager* req_pager = insert_key_in_internalnode(mid_key, table, fptr);
-        short* array_keys = malloc(ID_SIZE * req_pager->num_of_rows);
-        short* array_pagenumbers = malloc(PAGE_NUMBER_SIZE * (req_pager->num_of_rows + 1));
-        max_index_row = (req_pager->num_of_rows - 1);
-        max_row_number = max_index_row;
-        min_row_number = 0;
-        pager->parent_pagenumber = req_pager->page_number;
-        new_pager->parent_pagenumber = req_pager->page_number;
-        if (mid_key > array_keys[max_row_number]){
-            memcpy(&mid_key, req_pager->page+DATA_OFFSET+(ID_SIZE * req_pager->num_of_rows), ID_SIZE);
-            req_pager->num_of_rows += 1;
-            memcpy(&new_pager->page_number, req_pager->page+DATA_OFFSET+(ID_SIZE * max_number_of_keys) + (
-                    req_pager->num_of_rows * PAGE_NUMBER_SIZE), PAGE_NUMBER_SIZE);
-            return req_pager;
-        }
-
-        while (min_row_number < max_row_number){
-            mid = floor((min_row_number + max_row_number)/2);
-            memcpy(&mid_key, table->pager->page + DATA_OFFSET + (mid * ID_SIZE), ID_SIZE);
-            if (key > array_keys[mid]){
-                min_row_number = mid + 1;
-            } else{
-                max_row_number = mid;
-            }
-        }
-
-
-        memcpy(array_keys + ((max_row_number + 1) * ID_SIZE), array_keys + (
-                (max_row_number) * ID_SIZE), (req_pager->num_of_rows - max_row_number) * ID_SIZE);
-        memcpy(array_keys + ((max_row_number) * ID_SIZE), &mid_key, ID_SIZE);
-
-        memcpy(array_pagenumbers + (max_row_number + 2) * PAGE_NUMBER_SIZE, array_pagenumbers + (
-                max_row_number + 1) * PAGE_NUMBER_SIZE, (req_pager->num_of_rows - max_row_number) * PAGE_NUMBER_SIZE);
-
-        memcpy(array_pagenumbers + ((max_row_number + 1) * PAGE_NUMBER_SIZE), &new_pager->page_number, PAGE_NUMBER_SIZE);
-
-        req_pager->num_of_rows += 1;
+        // Loading the appropriate page to insert key.
         if (key <= mid_key){
             return pager;
         } else{
             return new_pager;
         }
-        // Copy keys and children page numbers to root node.
-        // Structure is to store all the keys starting at data offset and then all the pointers.
     }
-    else{
-        return table->pager->page;
+    table->pager = loadpage(table, pager->parent_pagenumber, fptr);
+    Pager* req_pager = insert_key_in_internalnode(mid_key, table, fptr);
+    short* array_keys = malloc(ID_SIZE * req_pager->num_of_rows);
+    memcpy(array_keys, req_pager->page + DATA_OFFSET, ID_SIZE * req_pager->num_of_rows);
+    short* array_pagenumbers = malloc(PAGE_NUMBER_SIZE * (req_pager->num_of_rows + 1));
+    memcpy(array_pagenumbers, req_pager->page + DATA_OFFSET + (ID_SIZE * max_number_of_keys),
+            PAGE_NUMBER_SIZE * (req_pager->num_of_rows + 1));
+    max_index_row = (req_pager->num_of_rows - 1);
+    max_row_number = max_index_row;
+    min_row_number = 0;
+    pager->parent_pagenumber = req_pager->page_number;
+    new_pager->parent_pagenumber = req_pager->page_number;
+    if (mid_key > array_keys[max_row_number]){
+        memcpy(&mid_key, req_pager->page+DATA_OFFSET+(ID_SIZE * req_pager->num_of_rows), ID_SIZE);
+        req_pager->num_of_rows += 1;
+        memcpy(&new_pager->page_number, req_pager->page+DATA_OFFSET+(ID_SIZE * max_number_of_keys) + (
+                req_pager->num_of_rows * PAGE_NUMBER_SIZE), PAGE_NUMBER_SIZE);
+        return req_pager;
     }
+
+    while (min_row_number < max_row_number){
+        mid = floor((min_row_number + max_row_number)/2);
+        mid_key = array_keys[mid];
+        if (key > array_keys[mid]){
+            min_row_number = mid + 1;
+        } else{
+            max_row_number = mid;
+        }
+    }
+
+    memcpy(req_pager->page + DATA_OFFSET + ((max_row_number + 1) * ID_SIZE), req_pager->page + DATA_OFFSET + (max_row_number * ID_SIZE), (req_pager->num_of_rows - max_row_number) * ID_SIZE);
+
+    memcpy(req_pager->page + DATA_OFFSET + ((max_row_number) * ID_SIZE), &mid_key, ID_SIZE);
+
+    memcpy(req_pager->page + DATA_OFFSET + (ID_SIZE * max_number_of_keys) + ((max_row_number + 2) * PAGE_NUMBER_SIZE), req_pager->page + DATA_OFFSET + (ID_SIZE * max_number_of_keys) + ((max_row_number + 1) * PAGE_NUMBER_SIZE), (req_pager->num_of_rows - max_row_number) * PAGE_NUMBER_SIZE);
+
+    memcpy(req_pager->page + DATA_OFFSET + (ID_SIZE * max_number_of_keys) + ((max_row_number + 1) * PAGE_NUMBER_SIZE), &new_pager->page_number, PAGE_NUMBER_SIZE);
+
+    req_pager->num_of_rows += 1;
+
+    table->pager = pager;
+    write_table_data_to_file(table, fptr);
+    table->pager = new_pager;
+    write_table_data_to_file(table, fptr);
+    table->pager = req_pager;
+    write_table_data_to_file(table, fptr);
+    table->pager = pager;
+    req_pager = loadpage(table, table->root_page_number, fptr);
+    free(array_keys);
+    free(array_pagenumbers);
+    free(req_pager);
+    if (key <= mid_key){
+        return pager;
+    } else{
+        return new_pager;
+    }
+    // Copy keys and children page numbers to root node.
+    // Structure is to store all the keys starting at data offset and then all the pointers.
 }
 
 Cursor* table_iterator(short key, Table* table, FILE* fptr){
@@ -453,60 +486,61 @@ Cursor* table_iterator(short key, Table* table, FILE* fptr){
 
     // Checking if maximum number of rows are already inserted in the Node.
     // If its inserted Split the Node and Move one of the key to root and
-    if (table->pager->num_of_rows == max_number_of_rows_in_a_page){
-        Pager* pager = table->pager;
-        printf("Maximum number of rows have been inserted\n");
-        mid = floor((min_row_number + max_row_number)/2);
-        desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
-        mid_key = row->id;
-        Pager* new_pager = loadpage(table, table->number_of_pages+1, fptr);
-        // copying rows starting with index mid+1.
-        new_pager->num_of_rows = table->pager->num_of_rows - (mid + 1);
-        new_pager->is_root = 0;
-        // Copying into start of first row and mid+1 row.
-        memcpy(new_pager->page + DATA_OFFSET + (0 * ROW_SIZE), table->pager->page + DATA_OFFSET + ((mid+1) * ROW_SIZE),
-                (new_pager->num_of_rows * ROW_SIZE));
-        // Reducing number of rows in the current page.
-        table->pager->num_of_rows -= new_pager->num_of_rows;
+//    if (table->pager->num_of_rows == max_number_of_rows_in_a_page){
+//        Pager* pager = table->pager;
+//        printf("Maximum number of rows have been inserted\n");
+//        mid = floor((min_row_number + max_row_number)/2);
+//        desrialise(table->pager->page + DATA_OFFSET + (mid * ROW_SIZE), row);
+//        mid_key = row->id;
+//        Pager* new_pager = loadpage(table, table->number_of_pages+1, fptr);
+//        // copying rows starting with index mid+1.
+//        new_pager->num_of_rows = table->pager->num_of_rows - (mid + 1);
+//        new_pager->is_root = 0;
+//        // Copying into start of first row and mid+1 row.
+//        memcpy(new_pager->page + DATA_OFFSET + (0 * ROW_SIZE), table->pager->page + DATA_OFFSET + ((mid+1) * ROW_SIZE),
+//                (new_pager->num_of_rows * ROW_SIZE));
+//        // Reducing number of rows in the current page.
+//        table->pager->num_of_rows -= new_pager->num_of_rows;
+//
+//        Pager* root_pager =  loadpage(table, table->number_of_pages+1, fptr);
+//
+//        // Making root
+//        root_pager->parent_pagenumber = -1;
+//        root_pager->node_type = 0;
+//        root_pager->is_root = 1;
+//        root_pager->num_of_rows = 1;
+//        table->root_page_number = root_pager->page_number;
+//        if (table->pager->is_root == 1){
+//            // Checking if current page is root
+//            table->pager->is_root = 0;
+//            table->pager->parent_pagenumber = root_pager->page_number;
+//        }
+//        // Assigning it to same parent
+//        new_pager->parent_pagenumber = table->pager->parent_pagenumber;
+//
+//        // Copy keys and children page numbers to root node.
+//        // Structure is to store all the keys starting at data offset and then all the pointers.
+//        memcpy(root_pager->page + DATA_OFFSET + 0, &(mid_key), ID_SIZE);
+//        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0, &(pager->page_number),
+//                PAGE_NUMBER_SIZE);
+//        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
+//                &(new_pager->page_number), PAGE_NUMBER_SIZE);
+//
+//        write_table_data_to_file(table, fptr);
+//        table->pager = new_pager;
+//        write_table_data_to_file(table, fptr);
+//        table->pager = root_pager;
+//        write_table_data_to_file(table, fptr);
+//
+//        // Loading the appropriate page to insert key.
+//        if (key <= mid_key){
+//            table->pager = pager;
+//        } else{
+//            table->pager = new_pager;
+//        }
+//    }
 
-        Pager* root_pager =  loadpage(table, table->number_of_pages+1, fptr);
-
-        // Making root
-        root_pager->parent_pagenumber = -1;
-        root_pager->node_type = 0;
-        root_pager->is_root = 1;
-        root_pager->num_of_rows = 1;
-        table->root_page_number = root_pager->page_number;
-        if (table->pager->is_root == 1){
-            // Checking if current page is root
-            table->pager->is_root = 0;
-            table->pager->parent_pagenumber = root_pager->page_number;
-        }
-        // Assigning it to same parent
-        new_pager->parent_pagenumber = table->pager->parent_pagenumber;
-
-        // Copy keys and children page numbers to root node.
-        // Structure is to store all the keys starting at data offset and then all the pointers.
-        memcpy(root_pager->page + DATA_OFFSET + 0, &(mid_key), ID_SIZE);
-        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0, &(pager->page_number),
-                PAGE_NUMBER_SIZE);
-        memcpy(root_pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
-                &(new_pager->page_number), PAGE_NUMBER_SIZE);
-
-        write_table_data_to_file(table, fptr);
-        table->pager = new_pager;
-        write_table_data_to_file(table, fptr);
-        table->pager = root_pager;
-        write_table_data_to_file(table, fptr);
-
-        // Loading the appropriate page to insert key.
-        if (key <= mid_key){
-            table->pager = pager;
-        } else{
-            table->pager = new_pager;
-        }
-    }
-
+    table->pager = insert_key_in_internalnode(key, table, fptr);
 
     // Binary Search code goes here.
     // Following code finds the whether the given key is present or not, if its not present,
@@ -735,23 +769,19 @@ void inorder_traversal(Row* row, Table* table, FILE* fptr){
     // if its a leaf node print all the rows and return
     if (table->pager->node_type == 1){
         short start_row;
+        printf("Printing for page number: %d\n", table->pager->page_number);
         for(start_row=0; start_row < table->pager->num_of_rows; start_row++){
             // Loading the page if its not loaded into the table yet.
             desrialise(table->pager->page + DATA_OFFSET + (start_row*ROW_SIZE), row);
             printf("%d,%s,%s\n", row->id, row->name, row->email);
         }
+        printf("ending for page number: %d\n", table->pager->page_number);
         return;
     }
     short* array = malloc(PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
-    memcpy(array, table->pager->page + DATA_OFFSET + ((max_number_of_keys * ID_SIZE) * table->pager->num_of_rows),
-            PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
+    memcpy(array, table->pager->page + DATA_OFFSET + (ID_SIZE * max_number_of_keys),
+           PAGE_NUMBER_SIZE * (table->pager->num_of_rows + 1));
     short start_page;
-//    short left_page_number, right_page_number, key_value;
-//    memcpy(&key_value, table->pager->page + DATA_OFFSET, ID_SIZE);
-//    memcpy(&left_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + 0,
-//           PAGE_NUMBER_SIZE);
-//    memcpy(&right_page_number, table->pager->page + DATA_OFFSET + (max_number_of_keys * ID_SIZE) + PAGE_NUMBER_SIZE,
-//           PAGE_NUMBER_SIZE);
     short num_of_rows = table->pager->num_of_rows;
     for (start_page=0; start_page < num_of_rows + 1; start_page++){
         Pager* new_pager = loadpage(table, array[start_page], fptr);
@@ -790,6 +820,21 @@ int process_sql_statements(char* statement, Table* table, FILE* fptr){
             } else{
                 row->id = 1000 + j;
             }
+            insert_row_into_table(row, table, fptr);
+        }
+        free(row);
+        return EXIT_SUCCESS;
+    }
+    if (strncmp(statement, "insert_start", 12) == 0){
+        // Inserting multiple rows for checking size full.
+        printf("Multiple rows will be inserted\n");
+        short i = 0;
+        Row* row = get_row();
+        strcpy(row->name , "a");
+        strcpy(row->email , "b");
+
+        for (int j = 1; j <  8; ++j) {
+            row->id = j;
             insert_row_into_table(row, table, fptr);
         }
         free(row);
