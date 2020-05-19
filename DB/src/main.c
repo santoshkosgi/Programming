@@ -820,6 +820,11 @@ void inorder_traversal(Row* row, Table* table, FILE* fptr){
            ID_SIZE * (table->pager->num_of_rows));
     short start_page;
     short num_of_rows = table->pager->num_of_rows;
+    printf("Keys of Page: %d\n", table->pager->page_number);
+    for (start_page=0; start_page < num_of_rows; start_page++){
+        printf("%d\n", array_keys[start_page]);
+    }
+    printf("End Printing Keys of Page: %d\n", table->pager->page_number);
     for (start_page=0; start_page < num_of_rows + 1; start_page++){
         Pager* new_pager = loadpage(table, array[start_page], fptr);
         table->pager = new_pager;
