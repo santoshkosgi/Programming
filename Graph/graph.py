@@ -74,7 +74,7 @@ if __name__ == '__main__':
         labels = {}
         for node in graph.G.nodes():
             labels[node] = node
-        list_of_obs = [ (6,1), (6,2), (6,3), (6,4), (6,5), (6,6), (6,8)]
+        list_of_obs = [(6,0), (6,1), (6,2), (6,3), (6,4), (6,5), (6,6), (6,7), (6,8)]
         edge_list  = [((2,3), (3,4))]
         graph.bfs(list_of_obstacles=list_of_obs, src_node=(0, 0), dest_node=(6,2), node_labels=labels)
         # graph.draw_graph(list_of_obstacles=list_of_obs, edge_list=edge_list, node_lables=labels, src_node=(0, 0),
