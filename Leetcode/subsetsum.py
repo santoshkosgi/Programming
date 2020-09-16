@@ -27,12 +27,13 @@ class Solution(object):
         rows, columns = len(result), len(result[0])
         for i in range(1, rows):
             for j in range(columns):
-                if nums[i-1] > k:
+                if nums[i-1] > j:
                     result[i][j] = result[i-1][j]
                 else:
-                    result[i][j] = result[i-1][j] or result[i-1][k - nums[i-1]]
+                    result[i][j] = result[i-1][j] or result[i-1][j - nums[i-1]]
+        print(result)
         return result[-1][-1]
 
 
 sol = Solution()
-print(sol.subsetsum_dp([1, 2, 3, 4, 5, 6], 9))
+print(sol.subsetsum_dp([3, 4, 5, 2], 6))
