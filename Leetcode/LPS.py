@@ -85,10 +85,56 @@ class SuffixTree(object):
                 stack.append(node.children[child])
         return longest_substring
 
+class DynamicProgramming(object):
+    """
+    This class has methods to find longest pallindromic substring using Dynamic Programming.
+    """
+    def __init__(self, text):
+        self.text = text
+
+    def get_lps(self):
+        """
+        Idea is to form a matrix with indices on columns and rows. matrix[i][j] is 1 if text[i:j+1] is a
+        pallindrome, else 0. We have start filling it considering strings of lenghth 1, then 2 and son on.
+        While doing this we keep track of longest substring found.
+        @return: Longest Pallindromic substring
+        """
+        pallindrome_matrix = [[0 for _ in range(len(self.text))] for _ in range(len(self.text))]
+
+        result = ""
+        # Handling strings of length 1
+
+        for i in range(len(self.text)):
+            pallindrome_matrix[i][i] = 1
+            if len(result) < i - i + 1:
+                result = self.text[i:i+1]
+
+        # Handling strings of length 2
+        for i in range(len(self.text) - 1):
+            if self.text[i] == self.text[i+1]:
+                pallindrome_matrix[i][i+1] = 1
+                if len(result) < 2:
+                    result = self.text[i:i+2]
+
+        # Handling substrings of length starting from 3 till length of the whole string
+        for substr_len in range(3, len(self.text) + 1):
+            for start_pos in range(len(self.text)):
+                end_pos = start_pos + substr_len - 1
+                if end_pos > len(self.text) - 1:
+                    break
+                if self.text[start_pos] == self.text[end_pos] and pallindrome_matrix[start_pos + 1][end_pos - 1] == 1:
+                    pallindrome_matrix[start_pos][end_pos] = 1
+                    if len(result) < (end_pos - start_pos + 1):
+                        result = self.text[start_pos:end_pos+1]
+        return result
+
+
 if __name__ == '__main__':
-    text = "abcdabbafe"
+    text = "abcddcba"
     texts = [text]
     texts.append(text[::-1])
     suffix_tree = SuffixTree(texts=texts)
     suffix_tree.build_suffix_tree()
     print(suffix_tree.get_lps())
+    dp_obj = DynamicProgramming(text=text)
+    print(dp_obj.get_lps())
