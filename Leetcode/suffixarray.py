@@ -34,58 +34,71 @@ class SuffixArray(object):
             suffix_array_dict[start_pos] = self.text[start_pos:]
             # Initially assuming some sorted order
             sorted_suffixes_index.append(start_pos)
-        rank1 = []
-        rank2 = []
+        rank1 = {}
 
         for index in sorted_suffixes_index:
-            rank1.append(ord(suffix_array_dict[index][0]) - ord('a'))
+            rank1[index] = ord(suffix_array_dict[index][0]) - ord('a')
 
-        sorted_suffixes_index = [x for _, x in sorted(zip(rank1, sorted_suffixes_index), key=lambda pair: pair[0])]
-        rank1.sort()
+        # sorted_suffixes_index = [x for _, x in sorted(zip(rank1, sorted_suffixes_index), key=lambda pair: pair[0])]
+        # rank1.sort()
         first_element = True
-        for index, rank in enumerate(rank1):
-            if first_element is True:
-                first_element = False
-                rank2 = []
-                start_index = index
-                prev_rank = rank
-                string = suffix_array_dict[sorted_suffixes_index[index]]
-                if len(string) > 1:
-                    rank2.append(ord(string[1])- ord('a'))
-                else:
-                    rank2.append(-1)
-                end_index = start_index
-            else:
-                if rank == prev_rank:
-                    end_index = index
-                    string = suffix_array_dict[sorted_suffixes_index[index]]
-                    if len(string) > 1:
-                        rank2.append(ord(string[1])- ord('a'))
-                    else:
-                        rank2.append(-1)
-                else:
-                    sorted_suffixes_index[start_index:end_index+1] = [x for _, x in sorted(zip(
-                        rank2[start_index:end_index+1], sorted_suffixes_index[start_index:end_index+1]), key=lambda pair: pair[0])]
 
-                    rank2[start_index:end_index+1] = sorted(rank2[start_index:end_index+1])
-                    start_index = index
-                    prev_rank = rank
-                    end_index = index
-                    string = suffix_array_dict[sorted_suffixes_index[index]]
-                    if len(string) > 1:
-                        rank2.append(ord(string[1]) - ord('a'))
-                    else:
-                        rank2.append(-1)
-        sorted_suffixes_index[start_index:end_index + 1] = [x for _, x in sorted(zip(
-            rank2[start_index:end_index + 1], sorted_suffixes_index[start_index:end_index + 1]),
-            key=lambda pair: pair[0])]
-        rank2[start_index:end_index+1] = sorted(rank2[start_index:end_index+1])
+        next_suffix_start_index = 1
+
+        while next_suffix_start_index < len(self.text):
+            rank2 = {}
+            for index in sorted_suffixes_index:
+                if index + next_suffix_start_index > len(self.text) - 1:
+                    rank2[index] = -1
+                    continue
+                rank2[index] = rank1[index+next_suffix_start_index]
+            sorted_suffixes_index = self.sort_suffix_array_naive(sorted_suffixes_index, rank1, rank2)
+            rank1 = self.compute_newrank(sorted_suffixes_index, rank1, rank2)
+            next_suffix_start_index *= 2
         for i in sorted_suffixes_index:
             print(suffix_array_dict[i])
-        print(rank1, rank2)
+
+
+
+
+    def sort_suffix_array_naive(self, sorted_suffixes_index, rank1, rank2):
+        """
+        This function sorts numbers present in sorted_suffixes_index based on the values of rank1 and then rank2
+        @param sorted_suffixes_index: Suffix array which stores start indices of array
+        @param rank1: first rank of each suffix starting at a index
+        @param rank2: second rank of each suffix starting at a index
+        @return: sorted_suffixes_index
+        """
+        sorted_suffixes_index.sort(key=rank1.get)
+        # Now we have to iterate through the sorted suffix array and sort the subset of suffix array based on rank2
+        start_index = 0
+        end_index = 0
+        first_element = True
+        prev_rank = rank1[sorted_suffixes_index[0]]
+        for index, suffix_start_index in enumerate(sorted_suffixes_index):
+            if first_element is True:
+                first_element = False
+                continue
+            curr_rank = rank1[suffix_start_index]
+            if curr_rank != prev_rank:
+                sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index+1]
+                sorted_suffixes_index_subset.sort(key=rank2.get)
+                sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
+                start_index = end_index + 1
+                end_index = start_index
+                prev_rank = rank1[sorted_suffixes_index[start_index]]
+            else:
+                end_index += 1
+        sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index + 1]
+        sorted_suffixes_index_subset.sort(key=rank2.get)
+        sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
+
+        return sorted_suffixes_index
+
+
 
     @staticmethod
-    def compute_newrank(rank1, rank2):
+    def compute_newrank(sorted_suffixes_index, rank1, rank2):
         """
         This method computes new rank, starting with zero. If elements at two consecutive indices of rank1 and rank2
         are same, they get same rank. Else, one more than the previous one. All this is in the context of suffix arrays
@@ -93,22 +106,25 @@ class SuffixArray(object):
         @param rank2:
         @return:
         """
-        starting = True
-        prev_rank1_element = None
-        prev_rank2_element = None
-        new_rank = []
+        new_rank = {}
         rank = 0
-        for index in range(len(rank1)):
-            if starting is True:
-                prev_rank1_element = rank1[index]
-                prev_rank2_element = rank2[index]
-                new_rank.append(rank)
+        first_entry = True
+        for suffix_index in sorted_suffixes_index:
+            if first_entry is True:
+                first_entry = False
+                new_rank[suffix_index] = rank
+                prev_rank1 = rank1[suffix_index]
+                prev_rank2 = rank2[suffix_index]
+                continue
+            curr_rank1 = rank1[suffix_index]
+            curr_rank2 = rank2[suffix_index]
+            if prev_rank1 != curr_rank1 or prev_rank2 != curr_rank2:
+                rank += 1
+                new_rank[suffix_index] = rank
+                prev_rank1, prev_rank2 = curr_rank1, curr_rank2
             else:
-                if rank1[index] != prev_rank1_element or rank2[index] != prev_rank2_element:
-                    rank += 1
-                    prev_rank1_element = rank1[index]
-                    prev_rank2_element = rank2[index]
-                new_rank.append(rank)
+                new_rank[suffix_index] = rank
+
         return new_rank
 
 
@@ -124,5 +140,6 @@ class SuffixArray(object):
 
 
 if __name__ == '__main__':
+    # ssipqississippi
     suffix_array = SuffixArray(text="ssipqississippi")
     suffix_array.compute_suffix_array_optimal()

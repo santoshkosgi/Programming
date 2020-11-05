@@ -70,14 +70,8 @@ class SuffixTree(object):
                 stack.append(node.children[child])
         return longest_substring
 
-    def get_longest_pallindromic_substring(self):
-        """
-        Approach is to find the longest common substring between a string and its reversed string.
-        Catch is to find a common substring which is also a pallindrome. This can be done by putting some
-        constraints on the starting position of the string.
-        @return:
-        """
-    
+
+
 if __name__ == '__main__':
     suffixtree = SuffixTree(text="abcpqrabpqpq")
     suffixtree.build_suffix_tree()
