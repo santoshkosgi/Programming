@@ -52,16 +52,13 @@ class SuffixArray(object):
                     rank2[index] = -1
                     continue
                 rank2[index] = rank1[index+next_suffix_start_index]
-            sorted_suffixes_index = self.sort_suffix_array_naive(sorted_suffixes_index, rank1, rank2)
+            sorted_suffixes_index = self.sort_suffix_array(sorted_suffixes_index, rank1, rank2)
             rank1 = self.compute_newrank(sorted_suffixes_index, rank1, rank2)
             next_suffix_start_index *= 2
         for i in sorted_suffixes_index:
             print(suffix_array_dict[i])
 
-
-
-
-    def sort_suffix_array_naive(self, sorted_suffixes_index, rank1, rank2):
+    def sort_suffix_array(self, sorted_suffixes_index, rank1, rank2):
         """
         This function sorts numbers present in sorted_suffixes_index based on the values of rank1 and then rank2
         @param sorted_suffixes_index: Suffix array which stores start indices of array
@@ -69,7 +66,10 @@ class SuffixArray(object):
         @param rank2: second rank of each suffix starting at a index
         @return: sorted_suffixes_index
         """
-        sorted_suffixes_index.sort(key=rank1.get)
+        # sorted_suffixes_index.sort(key=rank1.get)
+
+        self.quicksort(sorted_suffixes_index, 0, len(sorted_suffixes_index)-1, rank1)
+
         # Now we have to iterate through the sorted suffix array and sort the subset of suffix array based on rank2
         start_index = 0
         end_index = 0
@@ -81,21 +81,49 @@ class SuffixArray(object):
                 continue
             curr_rank = rank1[suffix_start_index]
             if curr_rank != prev_rank:
-                sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index+1]
-                sorted_suffixes_index_subset.sort(key=rank2.get)
-                sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
+                self.quicksort(sorted_suffixes_index, start_index, end_index, rank2)
+                # sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index+1]
+                # sorted_suffixes_index_subset.sort(key=rank2.get)
+                # sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
                 start_index = end_index + 1
                 end_index = start_index
                 prev_rank = rank1[sorted_suffixes_index[start_index]]
             else:
                 end_index += 1
-        sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index + 1]
-        sorted_suffixes_index_subset.sort(key=rank2.get)
-        sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
+        self.quicksort(sorted_suffixes_index, start_index, end_index, rank2)
+        # sorted_suffixes_index_subset = sorted_suffixes_index[start_index:end_index + 1]
+        # sorted_suffixes_index_subset.sort(key=rank2.get)
+        # sorted_suffixes_index[start_index:end_index + 1] = sorted_suffixes_index_subset
 
         return sorted_suffixes_index
 
+    def quicksort(self, sorted_suffixes_index, start_index, end_index, rank):
+        """
+        This is inplace quicksort
+        @param sorted_suffixes_index: Array that needs to be sorted
+        @param rank: Based on this rank
+        @return: sorted array which is sorted inplace
+        """
+        low = start_index
+        high = end_index - 1
+        pivot = rank[sorted_suffixes_index[end_index]]
+        if not (low <= high):
+            return
+        while low <= high:
+            while rank[sorted_suffixes_index[low]] <= pivot and low < end_index:
+                low += 1
+            while rank[sorted_suffixes_index[high]] > pivot and high > start_index:
+                high -= 1
+            if low < high:
+                sorted_suffixes_index[low], sorted_suffixes_index[high] = sorted_suffixes_index[high], \
+                                                                          sorted_suffixes_index[low]
+            else:
+                break
 
+        sorted_suffixes_index[low], sorted_suffixes_index[end_index] = sorted_suffixes_index[end_index], \
+                                                                       sorted_suffixes_index[low]
+        self.quicksort(sorted_suffixes_index, start_index, low - 1, rank)
+        self.quicksort(sorted_suffixes_index, low + 1, end_index, rank)
 
     @staticmethod
     def compute_newrank(sorted_suffixes_index, rank1, rank2):
@@ -128,18 +156,7 @@ class SuffixArray(object):
         return new_rank
 
 
-
-    # @staticmethod
-    # def quicksort(actual_array, ref_array):
-    #     """
-    #     This function does quick sort of actual array based on ref array
-    #     @param actual_array: Actual array that needs to be sorted
-    #     @param ref_array: Ranks of each element in actual array
-    #     @return: sorted actual and ref_array
-    #     """
-
-
 if __name__ == '__main__':
     # ssipqississippi
-    suffix_array = SuffixArray(text="ssipqississippi")
+    suffix_array = SuffixArray(text="abaab")
     suffix_array.compute_suffix_array_optimal()
