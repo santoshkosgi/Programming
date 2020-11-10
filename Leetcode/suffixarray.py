@@ -2,11 +2,18 @@
 This code has methods to compute suffix array, LCP array and some applications of both.
 """
 
+"""
+TODO: Try using radixsort instead of quicksort
+LPS Array
+Some Applications of Suffix Arrays
+"""
+
 class SuffixArray(object):
     def __init__(self, text):
         self.text = text
         self.suffixarray = []
         self.lps = []
+        self.suffix_array_dict = {}
 
     def compute_suffix_array_naive(self):
         """
@@ -55,8 +62,11 @@ class SuffixArray(object):
             sorted_suffixes_index = self.sort_suffix_array(sorted_suffixes_index, rank1, rank2)
             rank1 = self.compute_newrank(sorted_suffixes_index, rank1, rank2)
             next_suffix_start_index *= 2
+
         for i in sorted_suffixes_index:
             print(suffix_array_dict[i])
+        self.suffix_array_dict = suffix_array_dict
+        self.suffixarray = sorted_suffixes_index
 
     def sort_suffix_array(self, sorted_suffixes_index, rank1, rank2):
         """
@@ -155,8 +165,48 @@ class SuffixArray(object):
 
         return new_rank
 
+    def compute_lps_array(self):
+        """
+        LPS array is defined as longest prefix between a suffix and its predecessor in the suffix array.
+        So, for the first element in the suffix array there will not be a lps.
+        This function computes lcp array of the suffix array. Uses computed suffix array and suffix array dict.
+        Using Kansai Algorithm
+        @return: lcp array.
+        """
+        rank_dict = {start_pos: index for index, start_pos in enumerate(self.suffixarray)}
+        # Minimum length of the prefix which we know already.
+        min_prefix_match = 0
+        self.lps = [None for _ in self.suffixarray]
+        for start_pos in range(len(self.text)):
+            curr_string = self.suffix_array_dict[start_pos]
+            pos_in_suffix_array = rank_dict[start_pos]
+            if pos_in_suffix_array == 0:
+                self.lps[pos_in_suffix_array] = None
+                min_prefix_match = 0
+                # Check if we might have to change min_prefix_match
+                continue
+            # Get the string which is before this curr_string in the suffix array.
+            prev_string_start_position = self.suffixarray[pos_in_suffix_array - 1]
+            prev_string = self.suffix_array_dict[prev_string_start_position]
+
+            # Minimum lenght to check for longest prefix
+            min_length_to_check = min(len(curr_string), len(prev_string))
+            num_prefix_char_match = 0
+            for h in range(min_prefix_match, min_length_to_check):
+                if curr_string[h] == prev_string[h]:
+                    num_prefix_char_match += 1
+                else:
+                    break
+            self.lps[pos_in_suffix_array] = min_prefix_match + num_prefix_char_match
+            min_prefix_match += num_prefix_char_match
+            if min_prefix_match >= 1:
+                min_prefix_match -= 1
+        print(self.lps)
+
+
 
 if __name__ == '__main__':
     # ssipqississippi
-    suffix_array = SuffixArray(text="abaab")
+    suffix_array = SuffixArray(text="ababaaz")
     suffix_array.compute_suffix_array_optimal()
+    suffix_array.compute_lps_array()
