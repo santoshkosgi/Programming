@@ -182,8 +182,6 @@ class SuffixArray(object):
             pos_in_suffix_array = rank_dict[start_pos]
             if pos_in_suffix_array == 0:
                 self.lps[pos_in_suffix_array] = None
-                min_prefix_match = 0
-                # Check if we might have to change min_prefix_match
                 continue
             # Get the string which is before this curr_string in the suffix array.
             prev_string_start_position = self.suffixarray[pos_in_suffix_array - 1]
@@ -204,9 +202,8 @@ class SuffixArray(object):
         print(self.lps)
 
 
-
 if __name__ == '__main__':
     # ssipqississippi
-    suffix_array = SuffixArray(text="ababaaz")
+    suffix_array = SuffixArray(text="ababaa")
     suffix_array.compute_suffix_array_optimal()
     suffix_array.compute_lps_array()
