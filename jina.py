@@ -147,15 +147,19 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
     availiable_items = availiable_items[:top_k]
     result = [item.item_id for item in availiable_items]
     # TODO: Implementation goes here
-    print(f' Please implement me')
+    # print(f' Please implement me')
     print(result)
     return result
 
 
 if __name__ == '__main__':
+    import time
     top_k = 10
     items = [str(i) for i in range(1000)]
+    begin = time.time()
     asyncio.run(return_top_cheapest_items(items, top_k))
+    end = time.time()
+    print(f"Total runtime of the program is {end - begin}")
 
 # TODO
 # Handle exceptions. - 3
