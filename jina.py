@@ -107,7 +107,24 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
         func_calls.append(consult_item_available(
             item_ids=item_ids[start_index: start_index+MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL]))
         start_index += MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL
-    
+
+    # Calling consult_item_available first
+    result = await asyncio.gather(*func_calls)
+    availiability_list = list(chain.from_iterable(result[0:num_availiablity_func_calls]))
+
+    availiable_items = [None] * sum(availiability_list)
+
+    start_index = 0
+    for index, is_avail in enumerate(availiability_list):
+        if is_avail is True:
+            availiable_items[start_index] = item_ids[index]
+            start_index += 1
+
+    func_calls = []
+
+    # Choosing only the aviliable items
+    item_ids = availiable_items
+
     num_price_check_func_calls = int(len(item_ids) / MAX_LIST_OF_ITEM_IDS_PRICING_CALL)
     if len(item_ids) % MAX_LIST_OF_ITEM_IDS_PRICING_CALL != 0:
         num_price_check_func_calls += 1
@@ -118,12 +135,12 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
         start_index += MAX_LIST_OF_ITEM_IDS_PRICING_CALL
 
     result = await asyncio.gather(*func_calls)
-    availiability_list = list(chain.from_iterable(result[0:num_availiablity_func_calls]))
-    price_list = list(chain.from_iterable(chain(result[num_availiablity_func_calls:])))
-    availiable_items = []
-    for is_avail, item_price in zip(availiability_list, price_list):
-        if is_avail is True:
-            availiable_items.append(item_price)
+    # availiability_list = list(chain.from_iterable(result[0:num_availiablity_func_calls]))
+    price_list = list(chain.from_iterable(chain(result)))
+    availiable_items = price_list
+    # for is_avail, item_price in zip(availiability_list, price_list):
+    #     if is_avail is True:
+    #         availiable_items.append(item_price)
 
     # Sorting  based on item price
     availiable_items = sorted(availiable_items, key=lambda x: (x.selling_price, int(x.discount)))
