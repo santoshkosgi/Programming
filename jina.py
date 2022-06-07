@@ -1,22 +1,26 @@
 """
-We are an e-commerce company, and we have to write a service whose job will be to return the `top_k` items. `top_k` here means the `k` cheapest items. This list should be sorted from cheapest to most expensive.
+The idea is to make a list of function calls that needs to be called for availability and Price fetching services.
+Trigger these functions asynchronously and sort the available items based on price.
+As, we need to sort only available items, we have tried following two approaches:
+1. Calling price fetching service only for available items.
+2. Calling price fetching service for all the items and sorting on the available items.
 
-To support the service, we have to call 2 other external services managed by other teams in the company.
+Intuitively the first case should perform well. But till certain number of item_ids second case performs well.
+This might be because of asynchronously calling lot of functions is computationally efficient than fetching price
+only for available items till some number of items(This is also based on the time taken by availability and
+price fetching service)
 
-- Availability service (consult_item_available) is a service mantained by the operations team, that returns information about the stock availability of a given item
+Following are some results:
 
-- Pricing service (consult_price) is a service mantained by the pricing team, that knows the exact price applicable for each item at a given time, and whether it is discounted or not.
+Length of Items    Fetching price for only available items    Fetching price for all Items
+     100	                   0.2031955719	                         0.1021785736
+     1000	                   0.2090339661	                         0.1117343903
+     10000	                   0.2447009087	                         0.1599185467
+     100000	                   0.3954846859	                         0.3775389194
+     1000000	               2.469397545	                         3.11268878
+     10000000	               29.42602348	                         37.89828563
 
-The interface with the Availability Service is clear because it returns a simple boolean for each item indicating its availability.
-With the pricing team, we have agreed on encapsulating the response in a class `PricedItem` where the selling price and the discount flag is filled.
-
-Both services can process in a single call as much as MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL and MAX_LIST_OF_ITEM_IDS_PRICING_CALL for a single request.
-
-The job of the team is to provide a service that returns the list of top_k items that are available. The list should be sorted from cheapest to most expensive. The product manager
-also told us that they would like to promote better discounted items, because they plan to show a special badge in the frontend.
-
-    ..note:
-        `consult_item_available` and `consult_price` are shown for clarity, but the exact implementation is unknown,
+Second and thrid column contains time taken in seconds.
 """
 import asyncio
 
@@ -69,7 +73,8 @@ async def consult_price(item_ids: List[str]) -> List[PricedItem]:
     # backend logic from the server
     return [PricedItem(item_id, random.random(), bool(random.randint(0, 1))) for item_id in item_ids]
 
-def __get_func_calls(item_ids: List[str], max_per_call: int, func_name):
+
+def get_func_calls(item_ids: List[str], max_per_call: int, func_name):
     num_of_func_calls = int(len(item_ids)/max_per_call)
 
     if len(item_ids) % max_per_call != 0:
@@ -77,7 +82,7 @@ def __get_func_calls(item_ids: List[str], max_per_call: int, func_name):
 
     start_index = 0
     func_calls = []
-    
+
     for call_index in range(num_of_func_calls):
         func_calls.append(func_name(
             item_ids=item_ids[start_index: start_index + max_per_call]))
@@ -94,18 +99,10 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
     :param top_k: The amount of item IDs to be returned
     """
     # Collecting async function calls
-    func_calls = []
 
-    # Computing number of calls needs to be made to consult_item_available()
-    num_availiablity_func_calls = int(len(item_ids)/MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL)
-    if len(item_ids) % MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL != 0:
-        num_availiablity_func_calls += 1
-    start_index = 0
-
-    for call_index in range(num_availiablity_func_calls):
-        func_calls.append(consult_item_available(
-            item_ids=item_ids[start_index: start_index+MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL]))
-        start_index += MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL
+    num_availiablity_func_calls, func_calls = get_func_calls(
+        item_ids=item_ids, max_per_call=MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL,
+        func_name=consult_item_available)
 
     # Calling consult_item_available first
     result = await asyncio.gather(*func_calls, return_exceptions=True)
@@ -122,16 +119,9 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
 
     # Choosing only the aviliable items
     item_ids = availiable_items
-
-    num_price_check_func_calls = int(len(item_ids) / MAX_LIST_OF_ITEM_IDS_PRICING_CALL)
-    if len(item_ids) % MAX_LIST_OF_ITEM_IDS_PRICING_CALL != 0:
-        num_price_check_func_calls += 1
-
-    start_index = 0
-    for call_index in range(num_price_check_func_calls):
-        func_calls.append(consult_price(
-            item_ids=item_ids[start_index: start_index + MAX_LIST_OF_ITEM_IDS_PRICING_CALL]))
-        start_index += MAX_LIST_OF_ITEM_IDS_PRICING_CALL
+    num_price_check_func_calls, func_calls = get_func_calls(
+        item_ids=item_ids, max_per_call=MAX_LIST_OF_ITEM_IDS_PRICING_CALL,
+        func_name=consult_price)
 
     result = await asyncio.gather(*func_calls, return_exceptions=True)
 
@@ -151,40 +141,27 @@ async def return_top_cheapest_items(item_ids: List[str], top_k: int):
     return result
 
 
-async def return_top_cheapest_items_2(item_ids: List[str], top_k: int):
+async def return_top_cheapest_items_check_price_of_all_items(item_ids: List[str], top_k: int):
     """
-    Function that receives a list of item IDs and a top_k parameter, and returns a list of item_ids that are available and sorted from cheapest to most expensive
+    Function that receives a list of item IDs and a top_k parameter, and returns a list of item_ids that are available
+    and sorted from cheapest to most expensive.
+    This function checks price of all items and sorts only items which are availiable.
 
     :param item_ids: The list of item IDs that are candidates to be returned
     :param top_k: The amount of item IDs to be returned
     """
-    func_calls = []
 
-    num_availiablity_func_calls = int(len(item_ids) / MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL)
+    num_availiablity_func_calls, func_calls_avail = get_func_calls(
+        item_ids=item_ids, max_per_call=MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL,
+        func_name=consult_item_available)
 
-    if len(item_ids) % MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL != 0:
-        num_availiablity_func_calls += 1
+    num_price_check_func_calls, func_calls_price = get_func_calls(
+        item_ids=item_ids, max_per_call=MAX_LIST_OF_ITEM_IDS_PRICING_CALL,
+        func_name=consult_price)
 
-    start_index = 0
-
-    for call_index in range(num_availiablity_func_calls):
-        func_calls.append(consult_item_available(
-            item_ids=item_ids[start_index: start_index + MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL]))
-        start_index += MAX_LIST_OF_ITEM_IDS_AVAILABILITY_CALL
-
-    num_price_check_func_calls = int(len(item_ids) / MAX_LIST_OF_ITEM_IDS_PRICING_CALL)
-
-    if len(item_ids) % MAX_LIST_OF_ITEM_IDS_PRICING_CALL != 0:
-        num_price_check_func_calls += 1
-    start_index = 0
-
-    for call_index in range(num_price_check_func_calls):
-        func_calls.append(consult_price(
-            item_ids=item_ids[start_index: start_index + MAX_LIST_OF_ITEM_IDS_PRICING_CALL]))
-        start_index += MAX_LIST_OF_ITEM_IDS_PRICING_CALL
+    func_calls = func_calls_avail + func_calls_price
 
     result = await asyncio.gather(*func_calls)
-
     # Handle Exceptions
     availiable_items = []
 
@@ -214,10 +191,18 @@ async def return_top_cheapest_items_2(item_ids: List[str], top_k: int):
     availiable_items = sorted(availiable_items, key=lambda x: (x.selling_price, int(x.discount)))
     availiable_items = availiable_items[:top_k]
     result = [item.item_id for item in availiable_items]
-    # TODO: Implementation goes here
-    # print(f' Please implement me')
-    # print(result)
     return result
+
+
+def unit_test():
+    import random
+    items = [str(i) for i in range(1000)]
+    random.seed(34)
+    assert asyncio.run(return_top_cheapest_items(items, 10)) == ['604', '871', '843', '690', '983', '844', '68', '784', '97', '870']
+    random.seed(43)
+    assert asyncio.run(return_top_cheapest_items_check_price_of_all_items(items, 10)) == ['181', '880', '295', '250', '802', '396', '201', '12', '672', '661']
+
+    print("Test Cases Passed :)")
 
 
 if __name__ == '__main__':
@@ -225,7 +210,7 @@ if __name__ == '__main__':
     top_k = 10
     items = [str(i) for i in range(1000)]
     begin = time.time()
-    print(asyncio.run(return_top_cheapest_items_2(items, top_k)))
+    print(asyncio.run(return_top_cheapest_items_check_price_of_all_items(items, top_k)))
     end = time.time()
     print(f"Total runtime of the program computing price of only availiable items is {end - begin}")
     # for num_of_items in [100, 1000, 10000, 100000, 1000000, 10000000]:
@@ -240,11 +225,3 @@ if __name__ == '__main__':
     #     end_2 = time.time()
     #     print(num_of_items, ", ", end_1 - begin_1, ", ", end_2 - begin_2)
     #     # print(f"Total runtime of the program computing price of all items is {end - begin}")
-
-# TODO
-# Handle exceptions. - 3
-# Replace some python functions with functions built from scratch - 4
-# make return_top_cheapest_items sync - 1
-# directly assign results - 2
-# See if we can call availiable function first and then call price function only on availiable items
-# Compare times of both of the above approaches
